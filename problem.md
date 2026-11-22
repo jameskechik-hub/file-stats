@@ -1,0 +1,28 @@
+
+
+\# Problem
+
+
+
+Users sometimes need to understand the contents of text files quickly. Manually counting words, lines, and/or characters is tedious, especially when working with larger files. A simple command-line tool could make this process faster and more convenient.
+
+
+
+\# Initial requirements
+
+
+
+1: The program must accept a text file path as a command-line argument.
+
+2: The program must count the total number of lines in the file.
+
+3: The program must count the total number of words in the file.
+
+4: The program must count the total number of characters in the file.
+
+5: The program must display the results clearly in the terminal.
+
+6: The program must display a helpful error message if anything goes wrong.
+
+
+
