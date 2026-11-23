@@ -1,5 +1,3 @@
-
-
 \# Problem
 
 
@@ -23,6 +21,22 @@ Users sometimes need to understand the contents of text files quickly. Manually 
 5: The program must display the results clearly in the terminal.
 
 6: The program must display a helpful error message if anything goes wrong.
+
+
+
+
+
+\## Round 2: Multiple File Analysis
+
+
+
+9: The program must accept multiple text file paths in a single command.
+
+10: The program must display separate statistics for each successfully analyzed file.
+
+11: If one file cannot be read, the program must report the error and continue processing the remaining files.
+
+12: The program must display combined totals for lines, words, and characters across all successfully analyzed files.
 
 
 
