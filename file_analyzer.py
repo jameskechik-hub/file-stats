@@ -1,4 +1,4 @@
-"""Display line, word, and character counts for one or more UTF-8 text files."""
+"""Display line, word, and character counts and the longest word for UTF-8 text files."""
 
 import argparse
 import os
@@ -10,6 +10,7 @@ class FileStats(NamedTuple):
     lines: int
     words: int
     characters: int
+    longest_word: str = ""  # Empty when the file has no words (R16).
 
 
 class AnalysisError(Exception):
@@ -23,6 +24,7 @@ def analyze_file(path):
         raise AnalysisError(f"'{path}' is a directory. Please provide a file.")
 
     lines = words = characters = 0
+    longest_word = ""
     try:
         # utf-8-sig drops a leading BOM. newline=None turns \r\n and \r into \n.
         with open(path, encoding="utf-8-sig", newline=None) as file:
@@ -31,9 +33,14 @@ def analyze_file(path):
                     raise AnalysisError(
                         f"'{path}' appears to be binary or not UTF-8 text."
                     )
+                line_words = line.split()
                 lines += 1
-                words += len(line.split())
+                words += len(line_words)
                 characters += len(line)
+                for word in line_words:
+                    # Strictly longer, so the first of several equal words is kept (R15).
+                    if len(word) > len(longest_word):
+                        longest_word = word
     except FileNotFoundError:
         raise AnalysisError(f"'{path}' was not found. Check the path and try again.")
     except PermissionError:
@@ -47,7 +54,7 @@ def analyze_file(path):
     except MemoryError:
         raise AnalysisError(f"Could not read '{path}': not enough memory.")
 
-    return FileStats(lines, words, characters)
+    return FileStats(lines, words, characters, longest_word)
 
 
 def format_counts(stats):
@@ -59,9 +66,22 @@ def format_counts(stats):
     )
 
 
+def format_longest(word):
+    """Return the longest-word line, or N/A with a length of 0 if there is none."""
+    if not word:
+        return "Longest:    N/A (0 characters)"
+    noun = "character" if len(word) == 1 else "characters"
+    return f"Longest:    {word} ({len(word)} {noun})"
+
+
 def format_report(path, stats):
     """Return the report for one file."""
-    return f"File:       {path}\n" + format_counts(stats)
+    return (
+        f"File:       {path}\n"
+        + format_counts(stats)
+        + "\n"
+        + format_longest(stats.longest_word)
+    )
 
 
 def format_totals(file_count, stats):
@@ -71,8 +91,15 @@ def format_totals(file_count, stats):
 
 
 def add_stats(first, second):
-    """Return the sum of two sets of statistics."""
-    return FileStats(*(a + b for a, b in zip(first, second)))
+    """Return the summed counts of two sets of statistics.
+
+    The totals have no longest word, so it is left empty.
+    """
+    return FileStats(
+        first.lines + second.lines,
+        first.words + second.words,
+        first.characters + second.characters,
+    )
 
 
 def write_block(text, first):
@@ -94,7 +121,10 @@ def main(argv=None):
     """Run the command-line program and return its exit code."""
     parser = argparse.ArgumentParser(
         prog="file_analyzer.py",
-        description="Count the lines, words, and characters in UTF-8 text files.",
+        description=(
+            "Count the lines, words, and characters in UTF-8 text files "
+            "and find the longest word in each."
+        ),
     )
     parser.add_argument(
         "file_paths",
