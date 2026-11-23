@@ -98,3 +98,29 @@ This round revises R11 from Round 2 to require explicit success and failure coun
 
 
 
+
+
+\## Round 6: Summary-Only Reporting
+
+
+
+24: The program must accept an optional --summary-only command-line flag.
+
+
+
+25: When --summary-only is provided, the program must display only the combined statistics, including total lines, words, characters, successful files, and failed files. Individual file statistics must be omitted.
+
+
+
+26: When --summary-only is not provided, the program must preserve its existing output behavior.
+
+
+
+27: The --summary-only flag must work with individual files, multiple files, directories, and combinations of file and directory paths.
+
+
+
+28: The program must display a helpful error message if --summary-only is provided without any file or directory paths.
+
+
+
