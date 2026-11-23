@@ -1,4 +1,4 @@
-"""Display line, word, and character counts for a UTF-8 text file."""
+"""Display line, word, and character counts for one or more UTF-8 text files."""
 
 import argparse
 import os
@@ -50,40 +50,83 @@ def analyze_file(path):
     return FileStats(lines, words, characters)
 
 
-def format_report(path, stats):
-    """Return the report that is shown to the user."""
+def format_counts(stats):
+    """Return the count lines shared by file reports and totals."""
     return (
-        f"File:       {path}\n"
         f"Lines:      {stats.lines}\n"
         f"Words:      {stats.words}\n"
         f"Characters: {stats.characters}"
     )
 
 
-def main(argv=None):
-    """Run the command-line program and return its exit code."""
-    parser = argparse.ArgumentParser(
-        prog="file_analyzer.py",
-        description="Count the lines, words, and characters in a UTF-8 text file.",
-    )
-    parser.add_argument("file_path", help="path of the text file to analyze")
-    args = parser.parse_args(argv)  # Exits with code 2 if the arguments are wrong.
+def format_report(path, stats):
+    """Return the report for one file."""
+    return f"File:       {path}\n" + format_counts(stats)
 
-    try:
-        stats = analyze_file(args.file_path)
-    except AnalysisError as error:
-        print(f"Error: {error}", file=sys.stderr)
-        return 1
 
+def format_totals(file_count, stats):
+    """Return the combined totals for the files that were analyzed."""
+    noun = "file" if file_count == 1 else "files"
+    return f"Total ({file_count} {noun})\n" + format_counts(stats)
+
+
+def add_stats(first, second):
+    """Return the sum of two sets of statistics."""
+    return FileStats(*(a + b for a, b in zip(first, second)))
+
+
+def write_block(text, first):
+    """Write one block to stdout, after a blank line unless it is the first.
+
+    Return False if the output could not be written.
+    """
     try:
-        print(format_report(args.file_path, stats), flush=True)
+        print(text if first else "\n" + text, flush=True)
     except OSError:
         print("Error: Could not write the results.", file=sys.stderr)
         # Discard unwritten output, or Python fails again when it flushes at exit.
         os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
-        return 1
+        return False
+    return True
 
-    return 0
+
+def main(argv=None):
+    """Run the command-line program and return its exit code."""
+    parser = argparse.ArgumentParser(
+        prog="file_analyzer.py",
+        description="Count the lines, words, and characters in UTF-8 text files.",
+    )
+    parser.add_argument(
+        "file_paths",
+        nargs="+",
+        metavar="file_path",
+        help="path of a text file to analyze",
+    )
+    args = parser.parse_args(argv)  # Exits with code 2 if the arguments are wrong.
+
+    total = FileStats(0, 0, 0)
+    analyzed = 0
+    any_failed = False
+
+    for path in args.file_paths:
+        try:
+            stats = analyze_file(path)
+        except AnalysisError as error:
+            print(f"Error: {error}", file=sys.stderr, flush=True)
+            any_failed = True
+            continue  # R11: report the error and go on to the next file.
+
+        if not write_block(format_report(path, stats), first=analyzed == 0):
+            return 1
+        analyzed += 1
+        total = add_stats(total, stats)
+
+    # R12: totals only make sense when more than one path was given.
+    if len(args.file_paths) > 1:
+        if not write_block(format_totals(analyzed, total), first=analyzed == 0):
+            return 1
+
+    return 1 if any_failed else 0
 
 
 if __name__ == "__main__":
