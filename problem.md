@@ -40,3 +40,19 @@ Users sometimes need to understand the contents of text files quickly. Manually 
 
 
 
+
+
+\## Round 3: Longest Word Analysis
+
+
+
+13: The program must identify the longest word in each successfully analyzed text file.
+
+14: The program must display the longest word and its character length alongside the existing file statistics.
+
+15: If multiple words share the maximum length, the program must report the first one encountered.
+
+16: If a file contains no words, the program must display "N/A" for its longest word and 0 for its length.
+
+
+
