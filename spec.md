@@ -26,7 +26,7 @@ Build a Python command-line application that analyzes text files and displays us
 
 10: Display separate statistics for each successfully analyzed file.
 
-11: If one file cannot be read, report the error and continue processing the remaining files.
+11 (Revised in Round 4): When analyzing multiple files, continue after an individual file fails, display an error for each failed file, and report the number of successfully analyzed and failed files in the final summary.
 
 12: Display combined totals for lines, words, and characters across all successfully analyzed files.
 
@@ -37,6 +37,10 @@ Build a Python command-line application that analyzes text files and displays us
 15: If multiple words share the maximum length, report the first one encountered.
 
 16: If a file contains no words, display "N/A" for its longest word and 0 for its length.
+
+17: The final summary must display the total number of successfully analyzed files.
+
+18: The final summary must display the total number of files that failed analysis.
 
 
 
@@ -133,7 +137,7 @@ With one path, these rules apply exactly as written. With several paths, R11 dec
 
 - Framework: `unittest`
 - Run all tests from the project root with `python -m unittest`.
-- Every requirement R1-R6, R9-R12, and R13-R16 has at least one test.
+- Every requirement R1-R6, R9-R12, R13-R16, and R17-R18 has at least one test.
 
 
 
@@ -156,6 +160,8 @@ R9-R12 refer to requirements 9-12 above. Requirement numbers 7 and 8 are not use
 
 ### R11: Errors while processing several files
 
+Revised in Round 4: R11 now also requires the final summary to report how many files succeeded and how many failed. See "Round 4 Details" below.
+
 - A file that cannot be analyzed gets an error message on stderr, using the same messages as R6, and no block on stdout.
 - The program then continues with the next file.
 - Exit codes:
@@ -173,6 +179,7 @@ R9-R12 refer to requirements 9-12 above. Requirement numbers 7 and 8 are not use
 - Totals add up the lines, words, and characters of the successfully analyzed files only.
 - The header gives the number of successfully analyzed files, as `1 file` or `N files`.
 - If no file was analyzed successfully, the totals are still shown, with `0 files` and zeros.
+- Changed in Round 4: R17 and R18 add `Succeeded:` and `Failed:` lines to the end of this block.
 
 Example with `python file_analyzer.py a.txt missing.txt b.txt`:
 
@@ -202,6 +209,8 @@ Error: 'missing.txt' was not found. Check the path and try again.
 The exit code is 1.
 
 Changed in Round 3: each file block in this example also gets the R14 `Longest:` line. The totals block does not change. See the Round 3 example below.
+
+Changed in Round 4: the totals block also gets `Succeeded:` and `Failed:` lines. See the Round 4 example below.
 
 
 
@@ -281,3 +290,102 @@ Characters: 18
 ```
 
 The error for `missing.txt` goes to stderr as in Round 2, and the exit code is 1.
+
+Changed in Round 4: the totals block in this example also ends with `Succeeded:  2` and `Failed:     1`. See the Round 4 example below.
+
+
+
+## Round 4 Details
+
+Round 4 revises R11 and adds R17-R18. All other requirements are unchanged.
+
+### R11 (revised): Continue, report each error, and count the results
+
+- What did not change: with several paths, a file that fails gets its R6 error message on stderr and no block on stdout, and the program continues with the next file. The exit codes in the Round 2 R11 table do not change.
+- What is new: the final summary reports how many files were analyzed successfully (R17) and how many failed (R18).
+- A file "fails" when it produces any R6 file error: not found, a directory, permission denied, not valid UTF-8, contains a NUL byte, or any other read failure.
+- The "final summary" is the R12 totals block. It is shown only when two or more paths are given. With one path, the output is exactly as in Round 3, with no summary.
+- If the results cannot be written to stdout, processing stops at once with exit code 1, as in Round 2, and no summary is shown.
+- Usage errors (no paths, unknown option) analyze nothing, show no summary, and exit with code 2, as before.
+
+### R17: Successful file count
+
+- The totals block gets a `Succeeded:` line after `Characters:`, in the same aligned format.
+- The number is the count of successfully analyzed files. It is the same number as in the `Total (N files)` header.
+
+### R18: Failed file count
+
+- The totals block gets a `Failed:` line after `Succeeded:`.
+- The number is the count of files that failed analysis.
+- The line is always shown, including `Failed:     0` when every file succeeded.
+- `Succeeded` plus `Failed` always equals the number of paths given. A path given more than once is counted each time, as in R9.
+
+### Summary format
+
+```text
+Total (2 files)
+Lines:      3
+Words:      4
+Characters: 18
+Succeeded:  2
+Failed:     1
+```
+
+- The header and the `Lines:`, `Words:`, and `Characters:` lines are unchanged from R12.
+- The counts are plain numbers, with no `file`/`files` noun, so there is no singular form to choose.
+- File blocks (R5, R10, R14) are unchanged.
+
+### Examples for R11, R17, and R18
+
+| Command | `Succeeded:` | `Failed:` | Exit code |
+|---|---|---|---|
+| `a.txt b.txt` | 2 | 0 | 0 |
+| `a.txt missing.txt b.txt` | 2 | 1 | 1 |
+| `missing1.txt missing2.txt` | 0 | 2 | 1 |
+| `a.txt a.txt missing.txt missing.txt` | 2 | 2 | 1 |
+| `a.txt` (one path) | no summary | no summary | 0 |
+| `missing.txt` (one path) | no summary | no summary | 1 |
+
+Example with `python file_analyzer.py a.txt missing.txt b.txt`, where `a.txt` contains `one two\nthree\n` and `b.txt` contains `four`:
+
+```text
+File:       a.txt
+Lines:      2
+Words:      3
+Characters: 14
+Longest:    three (5 characters)
+
+File:       b.txt
+Lines:      1
+Words:      1
+Characters: 4
+Longest:    four (4 characters)
+
+Total (2 files)
+Lines:      3
+Words:      4
+Characters: 18
+Succeeded:  2
+Failed:     1
+```
+
+and on stderr:
+
+```text
+Error: 'missing.txt' was not found. Check the path and try again.
+```
+
+The exit code is 1.
+
+When every file fails, for example `python file_analyzer.py missing1.txt missing2.txt`:
+
+```text
+Total (0 files)
+Lines:      0
+Words:      0
+Characters: 0
+Succeeded:  0
+Failed:     2
+```
+
+with two error lines on stderr and exit code 1.
