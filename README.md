@@ -1,6 +1,6 @@
 # File Statistics Analyzer
 
-A command-line program that counts the lines, words, and characters in one or more text files.
+A command-line program that counts the lines, words, and characters in one or more text files and finds the longest word in each.
 
 ## Requirements
 
@@ -30,6 +30,7 @@ File:       notes.txt
 Lines:      12
 Words:      85
 Characters: 472
+Longest:    extraordinary (13 characters)
 ```
 
 With two or more paths, each file gets its own block, followed by combined totals for the files that were analyzed successfully:
@@ -39,11 +40,13 @@ File:       notes.txt
 Lines:      12
 Words:      85
 Characters: 472
+Longest:    extraordinary (13 characters)
 
 File:       draft.txt
 Lines:      3
 Words:      20
 Characters: 110
+Longest:    beginning (9 characters)
 
 Total (2 files)
 Lines:      15
@@ -60,6 +63,7 @@ Show usage with `python file_analyzer.py --help`. If a file name starts with a d
 - **Lines:** every line counts, including blank lines and a last line with no line break.
 - **Words:** any text separated by whitespace is a word, including `--`.
 - **Characters:** spaces, tabs, and line breaks count. A Windows line break counts as one character, so the total can be smaller than the file size.
+- **Longest word:** uses the same words as the word count, so punctuation is part of the word (`end.` has 4 characters). If several words are equally long, the first one in the file is shown. A file with no words shows `N/A (0 characters)`. The totals do not include a longest word.
 
 See [spec.md](spec.md) for the exact rules.
 
@@ -101,6 +105,10 @@ Add `-v` to list each test. The tests are in `tests/test_file_analyzer.py`, with
 | R10: Separate statistics per file | `TestR10SeparateStatistics` |
 | R11: Continue after a file error | `TestR11ContinueAfterErrors` |
 | R12: Combined totals | `TestR12CombinedTotals` |
+| R13: Find the longest word | `TestR13LongestWord` |
+| R14: Display the longest word and its length | `TestR14LongestWordDisplay` |
+| R15: First word wins a tie | `TestR15LongestWordTies` |
+| R16: N/A when a file has no words | `TestR16NoWords` |
 
 ## Design decisions
 
@@ -108,3 +116,4 @@ Add `-v` to list each test. The tests are in `tests/test_file_analyzer.py`, with
 - [0002: UTF-8 only](docs/decisions/0002-utf8-only.md)
 - [0003: Continue after file errors](docs/decisions/0003-continue-after-file-errors.md)
 - [0004: Multi-file output layout](docs/decisions/0004-multi-file-output-layout.md)
+- [0005: Longest word rules](docs/decisions/0005-longest-word-rules.md)
