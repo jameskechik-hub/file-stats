@@ -1,4 +1,4 @@
-"""Automated tests, with one test class for each requirement (R1-R6, R9-R18)."""
+"""Automated tests, with one test class for each requirement (R1-R6, R9-R23)."""
 
 import io
 import os
@@ -260,8 +260,16 @@ class TestR6Errors(AnalyzerTestCase):
     def test_empty_path(self):
         self.assert_error(self.run_program(""), "was not found")
 
-    def test_directory(self):
-        self.assert_error(self.run_program("."), "is a directory")
+    def test_directory_is_no_longer_an_error(self):
+        # Changed in Round 5: R19 replaces the Round 1 "path is a directory" error.
+        result = self.run_program(".")
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stderr, "")
+
+    def test_analyze_file_still_rejects_a_directory(self):
+        # main() expands directories (R19); analyze_file() itself only reads files.
+        with self.assertRaisesRegex(file_analyzer.AnalysisError, "is a directory"):
+            file_analyzer.analyze_file(str(self.directory))
 
     def test_invalid_utf8(self):
         self.write(b"caf\xe9")
@@ -470,22 +478,21 @@ class TestR11ContinueAfterErrors(MultiFileTestCase):
     def test_every_kind_of_error_is_reported_and_skipped(self):
         self.write(b"caf\xe9", "latin1.txt")
         self.write(b"ab\x00cd", "binary.txt")
-        (self.directory / "folder").mkdir()
+        # Changed in Round 5: a directory is no longer an error (R19), so none is used here.
         result = self.run_program(
-            "latin1.txt", "a.txt", "folder", "binary.txt", "missing.txt", "b.txt"
+            "latin1.txt", "a.txt", "binary.txt", "missing.txt", "b.txt"
         )
         self.assertEqual(result.returncode, 1)
         errors = result.stderr.splitlines()
-        self.assertEqual(len(errors), 4)
+        self.assertEqual(len(errors), 3)
         self.assertIn("'latin1.txt' is not valid UTF-8", errors[0])
-        self.assertIn("'folder' is a directory", errors[1])
-        self.assertIn("'binary.txt' appears to be binary", errors[2])
-        self.assertIn("'missing.txt' was not found", errors[3])
+        self.assertIn("'binary.txt' appears to be binary", errors[1])
+        self.assertIn("'missing.txt' was not found", errors[2])
         self.assertNotIn("Traceback", result.stderr)
         self.assertEqual(result.stdout.count("File:"), 2)
         self.assertNotIn("latin1.txt", result.stdout)
         self.assertEqual(
-            summary_counts(result.stdout), ["Succeeded:  2", "Failed:     4"]
+            summary_counts(result.stdout), ["Succeeded:  2", "Failed:     3"]
         )
 
     def test_each_failed_file_gets_its_own_error(self):
@@ -859,12 +866,10 @@ class TestR18FailedCount(MultiFileTestCase):
     def test_every_kind_of_failure_is_counted(self):
         self.write(b"caf\xe9", "latin1.txt")
         self.write(b"ab\x00cd", "binary.txt")
-        (self.directory / "folder").mkdir()
-        result = self.run_program(
-            "latin1.txt", "folder", "binary.txt", "missing.txt", "a.txt"
-        )
+        # Changed in Round 5: a directory is no longer an error (R19), so none is used here.
+        result = self.run_program("latin1.txt", "binary.txt", "missing.txt", "a.txt")
         self.assertEqual(result.returncode, 1)
-        self.assertEqual(summary_counts(result.stdout)[1], "Failed:     4")
+        self.assertEqual(summary_counts(result.stdout)[1], "Failed:     3")
 
     def test_permission_denied_is_counted(self):
         locked = str(self.directory / "locked.txt")
@@ -914,6 +919,423 @@ class TestR18FailedCount(MultiFileTestCase):
         result = self.run_program("missing.txt")
         self.assertEqual(result.returncode, 1)
         self.assertEqual(result.stdout, "")
+
+
+def inside(directory, name):
+    """Return the path the program shows for a file found in a directory (R21)."""
+    return os.path.join(str(directory), name)
+
+
+class FakeEntry:
+    """A stand-in for os.DirEntry, for listings that cannot be made on every system."""
+
+    def __init__(self, name, is_file=True):
+        self.name = name
+        self._is_file = is_file
+
+    def is_file(self):
+        return self._is_file
+
+
+class FakeListing:
+    """A stand-in for the context manager that os.scandir returns."""
+
+    def __init__(self, entries):
+        self.entries = entries
+
+    def __enter__(self):
+        return iter(self.entries)
+
+    def __exit__(self, *exc_info):
+        return False
+
+
+class DirectoryTestCase(AnalyzerTestCase):
+    """Create a directory "notes" holding two .txt files whose statistics are easy to check."""
+
+    def setUp(self):
+        super().setUp()
+        self.notes = self.directory / "notes"
+        self.write(b"four", "notes/b.txt")  # 1 line, 1 word, 4 characters
+        self.write(b"one two\nthree\n", "notes/A.txt")  # 2 lines, 3 words, 14 characters
+
+    def run_in_process(self, *paths):
+        """Run main() directly, so that os.scandir and open can be patched."""
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            code = file_analyzer.main([str(path) for path in paths])
+        return code, stdout.getvalue(), stderr.getvalue()
+
+
+class TestR19DirectoryInput(DirectoryTestCase):
+    """R19: accept a directory path and analyze the regular .txt files directly inside it."""
+
+    def test_analyzes_txt_files_in_a_directory(self):
+        result = self.run_program("notes")
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stderr, "")
+        self.assertIn(block(inside("notes", "A.txt"), 2, 3, 14, "three"), result.stdout)
+        self.assertIn(block(inside("notes", "b.txt"), 1, 1, 4, "four"), result.stdout)
+
+    def test_txt_match_ignores_case(self):
+        self.write(b"x", "notes/c.TXT")
+        self.write(b"y", "notes/d.Txt")
+        result = self.run_program("notes")
+        self.assertEqual(result.stdout.count("File:"), 4)
+        self.assertIn(block(inside("notes", "c.TXT"), 1, 1, 1, "x"), result.stdout)
+        self.assertIn(block(inside("notes", "d.Txt"), 1, 1, 1, "y"), result.stdout)
+
+    def test_other_files_are_ignored_and_not_counted(self):
+        for name in ("readme.md", "notes.txt.bak", "README", "datatxt", "c.text"):
+            self.write(b"ignored words", "notes/" + name)
+        result = self.run_program("notes")
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stderr, "")
+        self.assertEqual(result.stdout.count("File:"), 2)
+        self.assertNotIn("ignored", result.stdout)
+        self.assertEqual(summary_counts(result.stdout), ["Succeeded:  2", "Failed:     0"])
+
+    def test_directory_named_like_a_txt_file_is_not_a_regular_file(self):
+        self.write(b"hidden words", "notes/old.txt/c.txt")
+        result = self.run_program("notes")
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stderr, "")
+        self.assertNotIn("old.txt", result.stdout)
+        self.assertEqual(summary_counts(result.stdout), ["Succeeded:  2", "Failed:     0"])
+
+    def test_hidden_and_bare_txt_names_are_included(self):
+        self.write(b"h", "notes/.hidden.txt")
+        self.write(b"t", "notes/.txt")
+        result = self.run_program("notes")
+        self.assertIn(block(inside("notes", ".hidden.txt"), 1, 1, 1, "h"), result.stdout)
+        self.assertIn(block(inside("notes", ".txt"), 1, 1, 1, "t"), result.stdout)
+
+    def test_directory_can_be_mixed_with_files(self):
+        self.write(b"x", "x.txt")
+        self.write(b"y", "y.txt")
+        result = self.run_program("x.txt", "notes", "y.txt")
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(
+            result.stdout,
+            block("x.txt", 1, 1, 1, "x")
+            + "\n"
+            + block(inside("notes", "A.txt"), 2, 3, 14, "three")
+            + "\n"
+            + block(inside("notes", "b.txt"), 1, 1, 4, "four")
+            + "\n"
+            + block("y.txt", 1, 1, 1, "y")
+            + "\n"
+            + totals("4 files", 5, 6, 20, 4, 0),
+        )
+
+    def test_several_directories(self):
+        self.write(b"z", "more/z.txt")
+        result = self.run_program("more", "notes")
+        self.assertEqual(result.returncode, 0)
+        self.assertLess(
+            result.stdout.index(inside("more", "z.txt")),
+            result.stdout.index(inside("notes", "A.txt")),
+        )
+        self.assertEqual(summary_counts(result.stdout), ["Succeeded:  3", "Failed:     0"])
+
+    def test_directory_given_twice_is_analyzed_twice(self):
+        result = self.run_program("notes", "notes")
+        self.assertEqual(result.stdout.count("File:"), 4)
+        self.assertTrue(result.stdout.endswith(totals("4 files", 6, 8, 36, 4, 0)))
+
+    def test_file_in_directory_and_given_directly_counts_twice(self):
+        result = self.run_program("notes", "notes/b.txt")
+        self.assertEqual(summary_counts(result.stdout), ["Succeeded:  3", "Failed:     0"])
+
+    def test_absolute_directory_path(self):
+        absolute = self.notes.resolve()
+        result = self.run_program(absolute)
+        self.assertEqual(result.returncode, 0)
+        self.assertIn(block(inside(absolute, "A.txt"), 2, 3, 14, "three"), result.stdout)
+
+    def test_directory_with_spaces_in_its_name(self):
+        self.write(b"x", "my notes/c d.txt")
+        result = self.run_program("my notes")
+        self.assertEqual(result.returncode, 0)
+        self.assertIn(block(inside("my notes", "c d.txt"), 1, 1, 1, "x"), result.stdout)
+
+    def test_current_directory(self):
+        self.write(b"x", "c.txt")
+        result = self.run_program(".")
+        self.assertEqual(result.returncode, 0)
+        self.assertIn(block(inside(".", "c.txt"), 1, 1, 1, "x"), result.stdout)
+
+    def test_missing_directory_is_not_found(self):
+        result = self.run_program("missing")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("'missing' was not found", result.stderr)
+        self.assertEqual(result.stdout, "")
+
+    def test_symbolic_link_to_a_file_is_included_and_broken_link_skipped(self):
+        try:
+            os.symlink(self.notes / "b.txt", self.notes / "link.txt")
+            os.symlink(self.notes / "gone", self.notes / "broken.txt")
+        except (OSError, NotImplementedError):
+            self.skipTest("this system does not allow creating symbolic links")
+        result = self.run_program("notes")
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stderr, "")
+        self.assertIn(block(inside("notes", "link.txt"), 1, 1, 4, "four"), result.stdout)
+        self.assertNotIn("broken.txt", result.stdout)
+
+    def test_help_mentions_directories(self):
+        result = self.run_program("--help")
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("directory", result.stdout)
+
+
+class TestR20DirectoryOrder(DirectoryTestCase):
+    """R20: do not search subdirectories, and process files in alphabetical order."""
+
+    def file_lines(self, stdout):
+        return [line for line in stdout.splitlines() if line.startswith("File:")]
+
+    def test_subdirectories_are_not_searched(self):
+        self.write(b"deep", "notes/old/c.txt")
+        self.write(b"deeper", "notes/old/older/d.txt")
+        result = self.run_program("notes")
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout.count("File:"), 2)
+        self.assertNotIn("deep", result.stdout)
+        self.assertNotIn("old", result.stdout)
+
+    def test_alphabetical_order_ignores_case(self):
+        for name in ("Zed.txt", "Cat.TXT", "apple.txt"):
+            self.write(b"w", "notes/" + name)
+        result = self.run_program("notes")
+        # A plain code-point sort would put every capital letter first.
+        expected = ["A.txt", "apple.txt", "b.txt", "Cat.TXT", "Zed.txt"]
+        self.assertEqual(
+            self.file_lines(result.stdout),
+            [f"File:       {inside('notes', name)}" for name in expected],
+        )
+
+    def test_order_is_alphabetical_not_creation_order(self):
+        self.write(b"w", "notes/0.txt")  # created last, but sorts first
+        result = self.run_program("notes")
+        self.assertEqual(
+            self.file_lines(result.stdout),
+            [f"File:       {inside('notes', name)}" for name in ("0.txt", "A.txt", "b.txt")],
+        )
+
+    def test_sorting_compares_characters_not_numbers(self):
+        for name in ("2.txt", "10.txt", "1.txt"):
+            self.write(b"n", "more/" + name)
+        result = self.run_program("more")
+        self.assertEqual(
+            self.file_lines(result.stdout),
+            [f"File:       {inside('more', name)}" for name in ("1.txt", "10.txt", "2.txt")],
+        )
+
+    def test_names_that_differ_only_in_case_are_ordered_by_exact_name(self):
+        # Two such names cannot exist together on Windows, so the listing is simulated.
+        entries = [FakeEntry(name) for name in ("b.txt", "a.txt", "B.txt", "A.txt")]
+        with mock.patch("os.scandir", return_value=FakeListing(entries)):
+            paths = file_analyzer.list_text_files("notes")
+        self.assertEqual(
+            paths, [inside("notes", name) for name in ("A.txt", "a.txt", "B.txt", "b.txt")]
+        )
+
+    def test_listing_keeps_only_regular_txt_files(self):
+        entries = [
+            FakeEntry("c.txt"),
+            FakeEntry("sub.txt", is_file=False),
+            FakeEntry("readme.md"),
+            FakeEntry("A.TXT"),
+        ]
+        with mock.patch("os.scandir", return_value=FakeListing(entries)):
+            paths = file_analyzer.list_text_files("notes")
+        self.assertEqual(paths, [inside("notes", "A.TXT"), inside("notes", "c.txt")])
+
+
+class TestR21DirectoryFileStatistics(DirectoryTestCase):
+    """R21: show each analyzed .txt file in a directory in the existing block format."""
+
+    def test_exact_output_for_a_directory(self):
+        result = self.run_program("notes")
+        self.assertEqual(
+            result.stdout,
+            block(inside("notes", "A.txt"), 2, 3, 14, "three")
+            + "\n"
+            + block(inside("notes", "b.txt"), 1, 1, 4, "four")
+            + "\n"
+            + totals("2 files", 3, 4, 18, 2, 0),
+        )
+
+    def test_file_line_joins_the_directory_as_typed(self):
+        result = self.run_program("notes/")
+        self.assertIn(f"File:       {inside('notes/', 'A.txt')}\n", result.stdout)
+
+    def test_every_statistic_is_shown_for_each_file(self):
+        self.write(b"", "notes/empty.txt")
+        self.write("café\r\n".encode(), "notes/cafe.txt")
+        result = self.run_program("notes")
+        self.assertIn(block(inside("notes", "empty.txt"), 0, 0, 0, None), result.stdout)
+        self.assertIn(block(inside("notes", "cafe.txt"), 1, 1, 5, "café"), result.stdout)
+
+    def test_longest_word_tie_keeps_the_first_word_in_each_file(self):
+        self.write(b"cat dog ant", "notes/c.txt")
+        result = self.run_program("notes")
+        self.assertIn(block(inside("notes", "c.txt"), 1, 3, 11, "cat"), result.stdout)
+
+
+class TestR22DirectoryTotals(DirectoryTestCase):
+    """R22: show combined totals with the success and failure counts for directory analysis."""
+
+    def test_summary_for_a_directory(self):
+        result = self.run_program("notes")
+        self.assertTrue(result.stdout.endswith("\n\n" + totals("2 files", 3, 4, 18, 2, 0)))
+
+    def test_summary_for_a_directory_with_one_file(self):
+        self.write(b"x", "single/only.txt")
+        result = self.run_program("single")
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(
+            result.stdout,
+            block(inside("single", "only.txt"), 1, 1, 1, "x")
+            + "\n"
+            + totals("1 file", 1, 1, 1, 1, 0),
+        )
+
+    def test_empty_directory_shows_a_zero_summary(self):
+        (self.directory / "empty").mkdir()
+        result = self.run_program("empty")
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stderr, "")
+        self.assertEqual(result.stdout, totals("0 files", 0, 0, 0, 0, 0))
+
+    def test_directory_without_txt_files_shows_a_zero_summary(self):
+        self.write(b"words here", "docs/readme.md")
+        result = self.run_program("docs")
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, totals("0 files", 0, 0, 0, 0, 0))
+
+    def test_totals_include_directory_files_and_direct_files(self):
+        self.write(b"x y", "x.txt")  # 1 line, 2 words, 3 characters
+        result = self.run_program("notes", "x.txt")
+        self.assertTrue(result.stdout.endswith(totals("3 files", 4, 6, 21, 3, 0)))
+
+    def test_totals_skip_failed_files_and_count_them(self):
+        self.write(b"bad \xff", "notes/bad.txt")
+        result = self.run_program("notes")
+        self.assertEqual(result.returncode, 1)
+        self.assertTrue(result.stdout.endswith(totals("2 files", 3, 4, 18, 2, 1)))
+
+    def test_single_file_path_still_has_no_summary(self):
+        result = self.run_program("notes/b.txt")
+        self.assertEqual(result.stdout, block("notes/b.txt", 1, 1, 4, "four"))
+
+
+class TestR23DirectoryErrors(DirectoryTestCase):
+    """R23: report a .txt file that cannot be read and continue with the rest."""
+
+    def test_unreadable_file_is_reported_and_the_rest_continue(self):
+        self.write(b"caf\xe9", "notes/Apple.txt")  # sorts between A.txt and b.txt
+        result = self.run_program("notes")
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(
+            result.stderr,
+            f"Error: '{inside('notes', 'Apple.txt')}' is not valid UTF-8. "
+            "Only UTF-8 text is supported.\n",
+        )
+        self.assertEqual(
+            result.stdout,
+            block(inside("notes", "A.txt"), 2, 3, 14, "three")
+            + "\n"
+            + block(inside("notes", "b.txt"), 1, 1, 4, "four")
+            + "\n"
+            + totals("2 files", 3, 4, 18, 2, 1),
+        )
+
+    def test_every_kind_of_file_error_is_reported_and_counted(self):
+        self.write(b"caf\xe9", "notes/latin1.txt")
+        self.write(b"ab\x00cd", "notes/binary.txt")
+        self.write("hello".encode("utf-16"), "notes/utf16.txt")
+        result = self.run_program("notes")
+        self.assertEqual(result.returncode, 1)
+        errors = result.stderr.splitlines()
+        self.assertEqual(len(errors), 3)
+        self.assertIn(f"'{inside('notes', 'binary.txt')}' appears to be binary", errors[0])
+        self.assertIn(f"'{inside('notes', 'latin1.txt')}' is not valid UTF-8", errors[1])
+        self.assertIn(f"'{inside('notes', 'utf16.txt')}' is not valid UTF-8", errors[2])
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertEqual(summary_counts(result.stdout), ["Succeeded:  2", "Failed:     3"])
+
+    def test_permission_denied_file_is_reported_and_the_rest_continue(self):
+        locked = inside(self.notes, "A.txt")
+        real_open = open
+
+        def fake_open(path, *args, **kwargs):
+            if str(path) == locked:
+                raise PermissionError(13, "Permission denied")
+            return real_open(path, *args, **kwargs)
+
+        with mock.patch("builtins.open", fake_open):
+            code, stdout, stderr = self.run_in_process(self.notes)
+        self.assertEqual(code, 1)
+        self.assertIn(f"Permission denied when reading '{locked}'", stderr)
+        self.assertEqual(
+            stdout,
+            block(inside(self.notes, "b.txt"), 1, 1, 4, "four")
+            + "\n"
+            + totals("1 file", 1, 1, 4, 1, 1),
+        )
+
+    def test_file_removed_after_listing_is_reported(self):
+        gone = FakeEntry("0gone.txt")
+        entries = [gone, FakeEntry("A.txt"), FakeEntry("b.txt")]
+        with mock.patch("os.scandir", return_value=FakeListing(entries)):
+            code, stdout, stderr = self.run_in_process(self.notes)
+        self.assertEqual(code, 1)
+        self.assertIn(f"'{inside(self.notes, '0gone.txt')}' was not found", stderr)
+        self.assertTrue(stdout.endswith(totals("2 files", 3, 4, 18, 2, 1)))
+
+    def test_every_file_in_the_directory_fails(self):
+        self.write(b"\xff", "bad/one.txt")
+        self.write(b"\xff", "bad/two.txt")
+        result = self.run_program("bad")
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(len(result.stderr.splitlines()), 2)
+        self.assertEqual(result.stdout, totals("0 files", 0, 0, 0, 0, 2))
+
+    def test_directory_that_cannot_be_listed_is_one_failure(self):
+        self.write(b"x y", "x.txt")
+        error = PermissionError(13, "Permission denied")
+        with mock.patch("os.scandir", side_effect=error):
+            code, stdout, stderr = self.run_in_process(self.notes, self.directory / "x.txt")
+        self.assertEqual(code, 1)
+        self.assertEqual(
+            stderr, f"Error: Permission denied when reading directory '{self.notes}'.\n"
+        )
+        self.assertEqual(
+            stdout,
+            block(self.directory / "x.txt", 1, 2, 3, "x")
+            + "\n"
+            + totals("1 file", 1, 2, 3, 1, 1),
+        )
+
+    def test_other_listing_failure_explains_why(self):
+        error = OSError(5, "Input/output error")
+        with mock.patch("os.scandir", side_effect=error):
+            code, stdout, stderr = self.run_in_process(self.notes)
+        self.assertEqual(code, 1)
+        self.assertEqual(
+            stderr, f"Error: Could not read directory '{self.notes}': Input/output error.\n"
+        )
+        self.assertEqual(stdout, totals("0 files", 0, 0, 0, 0, 1))
+
+    def test_errors_in_one_directory_do_not_stop_the_next_path(self):
+        self.write(b"\xff", "notes/bad.txt")
+        self.write(b"x", "x.txt")
+        result = self.run_program("notes", "x.txt")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(block("x.txt", 1, 1, 1, "x"), result.stdout)
+        self.assertEqual(summary_counts(result.stdout), ["Succeeded:  3", "Failed:     1"])
 
 
 if __name__ == "__main__":
