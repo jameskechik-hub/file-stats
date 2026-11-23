@@ -1,4 +1,4 @@
-"""Automated tests, with one test class for each requirement (R1-R6, R9-R12)."""
+"""Automated tests, with one test class for each requirement (R1-R6, R9-R16)."""
 
 import io
 import os
@@ -196,7 +196,8 @@ class TestR5Output(AnalyzerTestCase):
             "File:       notes.txt\n"
             "Lines:      2\n"
             "Words:      3\n"
-            "Characters: 14\n",
+            "Characters: 14\n"
+            "Longest:    three (5 characters)\n",
         )
         self.assertEqual(result.stderr, "")
         self.assertEqual(result.returncode, 0)
@@ -209,7 +210,8 @@ class TestR5Output(AnalyzerTestCase):
             "File:       notes.txt\n"
             "Lines:      0\n"
             "Words:      0\n"
-            "Characters: 0\n",
+            "Characters: 0\n"
+            "Longest:    N/A (0 characters)\n",
         )
         self.assertEqual(result.returncode, 0)
 
@@ -318,14 +320,22 @@ class TestR6Errors(AnalyzerTestCase):
         self.assertEqual(result.stderr, "Error: Could not write the results.\n")
 
 
-def block(path, lines, words, characters):
+def longest_line(word):
+    """Return the R14 line for a longest word, or the R16 line when it is None."""
+    if word is None:
+        return "Longest:    N/A (0 characters)\n"
+    noun = "character" if len(word) == 1 else "characters"
+    return f"Longest:    {word} ({len(word)} {noun})\n"
+
+
+def block(path, lines, words, characters, longest):
     """Return one file's report, as printed by the program."""
     return (
         f"File:       {path}\n"
         f"Lines:      {lines}\n"
         f"Words:      {words}\n"
         f"Characters: {characters}\n"
-    )
+    ) + longest_line(longest)
 
 
 def totals(header, lines, words, characters):
@@ -350,8 +360,8 @@ class TestR9MultiplePaths(MultiFileTestCase):
     def test_accepts_two_paths(self):
         result = self.run_program("a.txt", "b.txt")
         self.assertEqual(result.returncode, 0)
-        self.assertIn(block("a.txt", 2, 3, 14), result.stdout)
-        self.assertIn(block("b.txt", 1, 1, 4), result.stdout)
+        self.assertIn(block("a.txt", 2, 3, 14, "three"), result.stdout)
+        self.assertIn(block("b.txt", 1, 1, 4, "four"), result.stdout)
         self.assertEqual(result.stderr, "")
 
     def test_accepts_many_paths_of_different_kinds(self):
@@ -360,8 +370,8 @@ class TestR9MultiplePaths(MultiFileTestCase):
         result = self.run_program("a.txt", "my folder/c d.txt", absolute, "./b.txt")
         self.assertEqual(result.returncode, 0)
         self.assertEqual(result.stdout.count("File:"), 4)
-        self.assertIn(block("my folder/c d.txt", 1, 2, 3), result.stdout)
-        self.assertIn(block(absolute, 1, 1, 1), result.stdout)
+        self.assertIn(block("my folder/c d.txt", 1, 2, 3, "x"), result.stdout)
+        self.assertIn(block(absolute, 1, 1, 1, "z"), result.stdout)
 
     def test_files_are_processed_in_the_order_given(self):
         result = self.run_program("b.txt", "a.txt")
@@ -370,7 +380,7 @@ class TestR9MultiplePaths(MultiFileTestCase):
     def test_repeated_path_is_analyzed_each_time(self):
         result = self.run_program("a.txt", "a.txt")
         self.assertEqual(result.returncode, 0)
-        self.assertEqual(result.stdout.count(block("a.txt", 2, 3, 14)), 2)
+        self.assertEqual(result.stdout.count(block("a.txt", 2, 3, 14, "three")), 2)
 
     def test_help_shows_several_paths(self):
         result = self.run_program("--help")
@@ -395,9 +405,9 @@ class TestR10SeparateStatistics(MultiFileTestCase):
         result = self.run_program("a.txt", "b.txt")
         self.assertEqual(
             result.stdout,
-            block("a.txt", 2, 3, 14)
+            block("a.txt", 2, 3, 14, "three")
             + "\n"
-            + block("b.txt", 1, 1, 4)
+            + block("b.txt", 1, 1, 4, "four")
             + "\n"
             + totals("2 files", 3, 4, 18),
         )
@@ -406,13 +416,13 @@ class TestR10SeparateStatistics(MultiFileTestCase):
         self.write(b"", "empty.txt")
         self.write(b"\r\n\r\n", "blank.txt")
         result = self.run_program("empty.txt", "blank.txt", "a.txt")
-        self.assertIn(block("empty.txt", 0, 0, 0), result.stdout)
-        self.assertIn(block("blank.txt", 2, 0, 2), result.stdout)
-        self.assertIn(block("a.txt", 2, 3, 14), result.stdout)
+        self.assertIn(block("empty.txt", 0, 0, 0, None), result.stdout)
+        self.assertIn(block("blank.txt", 2, 0, 2, None), result.stdout)
+        self.assertIn(block("a.txt", 2, 3, 14, "three"), result.stdout)
 
     def test_single_path_output_is_unchanged(self):
         result = self.run_program("a.txt")
-        self.assertEqual(result.stdout, block("a.txt", 2, 3, 14))
+        self.assertEqual(result.stdout, block("a.txt", 2, 3, 14, "three"))
         self.assertEqual(result.returncode, 0)
 
 
@@ -426,9 +436,9 @@ class TestR11ContinueAfterErrors(MultiFileTestCase):
         )
         self.assertEqual(
             result.stdout,
-            block("a.txt", 2, 3, 14)
+            block("a.txt", 2, 3, 14, "three")
             + "\n"
-            + block("b.txt", 1, 1, 4)
+            + block("b.txt", 1, 1, 4, "four")
             + "\n"
             + totals("2 files", 3, 4, 18),
         )
@@ -441,7 +451,7 @@ class TestR11ContinueAfterErrors(MultiFileTestCase):
                 self.assertIn("'missing.txt' was not found", result.stderr)
                 self.assertEqual(
                     result.stdout,
-                    block("a.txt", 2, 3, 14) + "\n" + totals("1 file", 2, 3, 14),
+                    block("a.txt", 2, 3, 14, "three") + "\n" + totals("1 file", 2, 3, 14),
                 )
 
     def test_every_kind_of_error_is_reported_and_skipped(self):
@@ -478,7 +488,7 @@ class TestR11ContinueAfterErrors(MultiFileTestCase):
                 code = file_analyzer.main([locked, good])
         self.assertEqual(code, 1)
         self.assertIn(f"Permission denied when reading '{locked}'", stderr.getvalue())
-        self.assertIn(block(good, 2, 3, 14), stdout.getvalue())
+        self.assertIn(block(good, 2, 3, 14, "three"), stdout.getvalue())
         self.assertIn(totals("1 file", 2, 3, 14), stdout.getvalue())
 
     def test_all_files_fail(self):
@@ -543,6 +553,191 @@ class TestR12CombinedTotals(MultiFileTestCase):
         self.assertTrue(
             result.stdout.endswith(totals("2 files", 150_000, 300_000, 1_500_000))
         )
+
+
+class TestR13LongestWord(MultiFileTestCase):
+    """R13: identify the longest word in each successfully analyzed file."""
+
+    def assert_longest(self, content, expected):
+        self.assertEqual(self.analyze(content).longest_word, expected)
+
+    def test_finds_the_longest_word(self):
+        self.assert_longest(b"cat elephant dog", "elephant")
+
+    def test_searches_every_line(self):
+        self.assert_longest(b"one\nthree\nseven\nfour", "three")
+
+    def test_every_style_of_line_break_separates_words(self):
+        self.assert_longest(b"ab\r\nabc\rabcd\nabcde", "abcde")
+
+    def test_punctuation_is_part_of_the_word(self):
+        self.assert_longest(b"see the end.", "end.")
+        self.assert_longest(b"don't stop -- well-known", "well-known")
+
+    def test_punctuation_only_piece_is_a_word(self):
+        self.assert_longest(b"a -- b", "--")
+
+    def test_unicode_whitespace_separates_words(self):
+        self.assert_longest("ab abcd abc".encode(), "abcd")
+
+    def test_keeps_original_letter_case(self):
+        self.assert_longest(b"tiny HUGE Word", "HUGE")
+
+    def test_leading_bom_is_not_part_of_the_word(self):
+        self.assert_longest(b"\xef\xbb\xbfabc de", "abc")
+
+    def test_longest_word_at_the_end_of_a_large_file(self):
+        self.assert_longest(b"two words\n" * 100_000 + b"finally", "finally")
+
+    def test_one_very_long_word(self):
+        self.assert_longest(b"x" * 1_000_000, "x" * 1_000_000)
+
+    def test_each_file_gets_its_own_longest_word(self):
+        result = self.run_program("a.txt", "b.txt")
+        self.assertIn(longest_line("three"), result.stdout)
+        self.assertIn(longest_line("four"), result.stdout)
+
+    def test_failed_file_has_no_longest_word(self):
+        result = self.run_program("a.txt", "missing.txt", "b.txt")
+        self.assertEqual(result.stdout.count("Longest:"), 2)
+        self.assertNotIn("Longest", result.stderr)
+
+
+class TestR14LongestWordDisplay(MultiFileTestCase):
+    """R14: show the longest word and its length with the other statistics."""
+
+    def longest_output(self, content):
+        self.write(content)
+        result = self.run_program("notes.txt")
+        self.assertEqual(result.returncode, 0)
+        return result.stdout.splitlines()[-1]
+
+    def test_exact_report_for_one_file(self):
+        self.write(b"tiny elephant\n")
+        result = self.run_program("notes.txt")
+        self.assertEqual(
+            result.stdout,
+            "File:       notes.txt\n"
+            "Lines:      1\n"
+            "Words:      2\n"
+            "Characters: 14\n"
+            "Longest:    elephant (8 characters)\n",
+        )
+        self.assertEqual(result.returncode, 0)
+
+    def test_length_of_one_is_singular(self):
+        self.assertEqual(self.longest_output(b"a b c"), "Longest:    a (1 character)")
+
+    def test_length_counts_code_points(self):
+        examples = (
+            ("café", "Longest:    café (4 characters)"),
+            ("\U0001f600\U0001f600", "Longest:    \U0001f600\U0001f600 (2 characters)"),
+            ("é", "Longest:    é (2 characters)"),
+        )
+        for content, expected in examples:
+            with self.subTest(content=content):
+                path = self.write(content.encode())
+                # Run in-process so the terminal's encoding cannot affect the result.
+                stdout = io.StringIO()
+                with redirect_stdout(stdout):
+                    code = file_analyzer.main([str(path)])
+                self.assertEqual(code, 0)
+                self.assertEqual(stdout.getvalue().splitlines()[-1], expected)
+
+    def test_exact_output_for_several_files(self):
+        result = self.run_program("a.txt", "missing.txt", "b.txt")
+        self.assertEqual(
+            result.stdout,
+            "File:       a.txt\n"
+            "Lines:      2\n"
+            "Words:      3\n"
+            "Characters: 14\n"
+            "Longest:    three (5 characters)\n"
+            "\n"
+            "File:       b.txt\n"
+            "Lines:      1\n"
+            "Words:      1\n"
+            "Characters: 4\n"
+            "Longest:    four (4 characters)\n"
+            "\n"
+            "Total (2 files)\n"
+            "Lines:      3\n"
+            "Words:      4\n"
+            "Characters: 18\n",
+        )
+        self.assertEqual(result.returncode, 1)
+
+    def test_totals_block_has_no_longest_word(self):
+        result = self.run_program("a.txt", "b.txt")
+        totals_block = result.stdout.split("\n\n")[-1]
+        self.assertEqual(totals_block, totals("2 files", 3, 4, 18))
+
+    def test_unprintable_word_does_not_crash(self):
+        self.write("日本".encode())
+        env = {**os.environ, "PYTHONIOENCODING": "ascii", "PYTHONUTF8": "1"}
+        result = self.run_program("notes.txt", env=env)
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("Longest:    \\u65e5\\u672c (2 characters)\n", result.stdout)
+
+
+class TestR15LongestWordTies(AnalyzerTestCase):
+    """R15: when words share the maximum length, report the first one."""
+
+    def assert_longest(self, content, expected):
+        self.assertEqual(self.analyze(content).longest_word, expected)
+
+    def test_first_word_on_a_line_wins(self):
+        self.assert_longest(b"cat dog ant", "cat")
+
+    def test_first_line_wins(self):
+        self.assert_longest(b"abc\nxyz\r\nqrs", "abc")
+
+    def test_tie_with_different_case(self):
+        self.assert_longest(b"Word word WORD", "Word")
+
+    def test_same_word_repeated(self):
+        self.assert_longest(b"echo echo", "echo")
+
+    def test_longer_word_after_a_tie_still_wins(self):
+        self.assert_longest(b"ab cd abc abd", "abc")
+
+    def test_first_is_shown_in_output(self):
+        self.write(b"bird fish\nfrog")
+        result = self.run_program("notes.txt")
+        self.assertTrue(result.stdout.endswith("Longest:    bird (4 characters)\n"))
+
+
+class TestR16NoWords(MultiFileTestCase):
+    """R16: a file with no words shows N/A and a length of 0."""
+
+    def assert_no_words(self, content):
+        path = self.write(content)
+        self.assertEqual(file_analyzer.analyze_file(path).longest_word, "")
+        result = self.run_program("notes.txt")
+        self.assertEqual(result.returncode, 0)
+        self.assertTrue(result.stdout.endswith("Longest:    N/A (0 characters)\n"))
+
+    def test_empty_file(self):
+        self.assert_no_words(b"")
+
+    def test_only_whitespace(self):
+        self.assert_no_words(" \t\n\r\n　".encode())
+
+    def test_only_a_bom(self):
+        self.assert_no_words(b"\xef\xbb\xbf")
+
+    def test_word_spelled_n_a_is_a_real_word(self):
+        self.write(b"N/A")
+        result = self.run_program("notes.txt")
+        self.assertTrue(result.stdout.endswith("Longest:    N/A (3 characters)\n"))
+
+    def test_empty_file_among_others(self):
+        self.write(b"", "empty.txt")
+        result = self.run_program("a.txt", "empty.txt", "b.txt")
+        self.assertEqual(result.returncode, 0)
+        self.assertIn(block("empty.txt", 0, 0, 0, None), result.stdout)
+        self.assertIn(block("a.txt", 2, 3, 14, "three"), result.stdout)
+        self.assertTrue(result.stdout.endswith(totals("3 files", 3, 4, 18)))
 
 
 if __name__ == "__main__":
