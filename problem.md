@@ -34,7 +34,7 @@ Users sometimes need to understand the contents of text files quickly. Manually 
 
 10: The program must display separate statistics for each successfully analyzed file.
 
-11: If one file cannot be read, the program must report the error and continue processing the remaining files.
+11 (Revised in Round 4): When analyzing multiple files, the program must continue after an individual file fails, display an error for each failed file, and report the number of successfully analyzed and failed files in the final summary.
 
 12: The program must display combined totals for lines, words, and characters across all successfully analyzed files.
 
@@ -53,6 +53,22 @@ Users sometimes need to understand the contents of text files quickly. Manually 
 15: If multiple words share the maximum length, the program must report the first one encountered.
 
 16: If a file contains no words, the program must display "N/A" for its longest word and 0 for its length.
+
+
+
+
+
+\## Round 4: Error Reporting Improvements
+
+
+
+This round revises R11 from Round 2 to require explicit success and failure counts in the final summary.
+
+
+
+17: The final summary must display the total number of successfully analyzed files.
+
+18: The final summary must display the total number of files that failed analysis.
 
 
 
