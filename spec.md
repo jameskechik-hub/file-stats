@@ -143,7 +143,7 @@ With one path, these rules apply exactly as written. With several paths, R11 dec
 
 ## Round 2 Details
 
-R9-R12 refer to requirements 9-12 above. Requirement numbers 7 and 8 are not used.
+R9-R12 refer to requirements 9-12 above. Requirement numbers 7 and 8 are not used. The user confirmed in Round 4 that skipping them was a typo. The numbering is kept as it is because later requirements, tests, and decision records already use these IDs.
 
 ### R9: Multiple paths
 
