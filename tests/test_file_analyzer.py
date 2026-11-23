@@ -581,7 +581,7 @@ class TestR13LongestWord(MultiFileTestCase):
         self.assert_longest("ab abcd abc".encode(), "abcd")
 
     def test_keeps_original_letter_case(self):
-        self.assert_longest(b"tiny HUGE Word", "HUGE")
+        self.assert_longest(b"big HUGE Word", "HUGE")
 
     def test_leading_bom_is_not_part_of_the_word(self):
         self.assert_longest(b"\xef\xbb\xbfabc de", "abc")
