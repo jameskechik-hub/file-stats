@@ -84,10 +84,15 @@ def format_report(path, stats):
     )
 
 
-def format_totals(file_count, stats):
-    """Return the combined totals for the files that were analyzed."""
-    noun = "file" if file_count == 1 else "files"
-    return f"Total ({file_count} {noun})\n" + format_counts(stats)
+def format_totals(succeeded, failed, stats):
+    """Return the final summary: combined totals and the file counts."""
+    noun = "file" if succeeded == 1 else "files"
+    return (
+        f"Total ({succeeded} {noun})\n"
+        + format_counts(stats)
+        + f"\nSucceeded:  {succeeded}"  # R17
+        + f"\nFailed:     {failed}"  # R18
+    )
 
 
 def add_stats(first, second):
@@ -136,14 +141,14 @@ def main(argv=None):
 
     total = FileStats(0, 0, 0)
     analyzed = 0
-    any_failed = False
+    failed = 0
 
     for path in args.file_paths:
         try:
             stats = analyze_file(path)
         except AnalysisError as error:
             print(f"Error: {error}", file=sys.stderr, flush=True)
-            any_failed = True
+            failed += 1
             continue  # R11: report the error and go on to the next file.
 
         if not write_block(format_report(path, stats), first=analyzed == 0):
@@ -151,12 +156,13 @@ def main(argv=None):
         analyzed += 1
         total = add_stats(total, stats)
 
-    # R12: totals only make sense when more than one path was given.
+    # R11, R12: the summary only makes sense when more than one path was given.
     if len(args.file_paths) > 1:
-        if not write_block(format_totals(analyzed, total), first=analyzed == 0):
+        summary = format_totals(analyzed, failed, total)
+        if not write_block(summary, first=analyzed == 0):
             return 1
 
-    return 1 if any_failed else 0
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":
