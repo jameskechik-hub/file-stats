@@ -1,4 +1,4 @@
-"""Automated tests, with one test class for each requirement (R1-R6, R9-R23)."""
+"""Automated tests, with one test class for each requirement (R1-R6, R9-R28)."""
 
 import io
 import os
@@ -1336,6 +1336,300 @@ class TestR23DirectoryErrors(DirectoryTestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn(block("x.txt", 1, 1, 1, "x"), result.stdout)
         self.assertEqual(summary_counts(result.stdout), ["Succeeded:  3", "Failed:     1"])
+
+
+FLAG = "--summary-only"
+NO_PATHS_MESSAGE = (
+    "file_analyzer.py: error: --summary-only requires at least one file or directory path."
+)
+
+
+class SummaryOnlyTestCase(DirectoryTestCase):
+    """Create a.txt and b.txt next to the "notes" directory from DirectoryTestCase."""
+
+    def setUp(self):
+        super().setUp()
+        self.write(b"one two\nthree\n", "a.txt")  # 2 lines, 3 words, 14 characters
+        self.write(b"four", "b.txt")  # 1 line, 1 word, 4 characters
+
+    def assert_only_summary(self, result, expected_summary, code=0):
+        self.assertEqual(result.returncode, code)
+        self.assertEqual(result.stdout, expected_summary)
+        self.assertNotIn("File:", result.stdout)
+        self.assertNotIn("Longest:", result.stdout)
+        self.assertNotIn("Traceback", result.stderr)
+
+
+class TestR24SummaryOnlyFlag(SummaryOnlyTestCase):
+    """R24: accept an optional --summary-only command-line flag."""
+
+    def test_flag_is_accepted(self):
+        result = self.run_program(FLAG, "a.txt", "b.txt")
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stderr, "")
+
+    def test_flag_is_optional(self):
+        result = self.run_program("a.txt", "b.txt")
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stderr, "")
+
+    def test_help_lists_the_flag(self):
+        result = self.run_program("--help")
+        self.assertEqual(result.returncode, 0)
+        self.assertIn(FLAG, result.stdout)
+        self.assertIn("file_path [file_path ...]", result.stdout)
+
+    def test_flag_may_come_before_after_or_between_paths(self):
+        expected = totals("2 files", 3, 4, 18, 2, 0)
+        for args in (
+            (FLAG, "a.txt", "b.txt"),
+            ("a.txt", "b.txt", FLAG),
+            ("a.txt", FLAG, "b.txt"),
+        ):
+            with self.subTest(args=args):
+                self.assert_only_summary(self.run_program(*args), expected)
+
+    def test_flag_given_twice_is_the_same_as_once(self):
+        result = self.run_program(FLAG, "a.txt", FLAG, "b.txt")
+        self.assert_only_summary(result, totals("2 files", 3, 4, 18, 2, 0))
+
+    def test_abbreviation_is_an_unknown_option(self):
+        result = self.run_program("--summary", "a.txt")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("usage: file_analyzer.py", result.stderr)
+        self.assertEqual(result.stdout, "")
+
+    def test_file_named_like_the_flag_can_be_analyzed(self):
+        self.write(b"hello", FLAG)
+        result = self.run_program("./" + FLAG)
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, block("./" + FLAG, 1, 1, 5, "hello"))
+
+    def test_main_accepts_the_flag(self):
+        code, stdout, stderr = self.run_in_process(FLAG, self.directory / "b.txt")
+        self.assertEqual(code, 0)
+        self.assertEqual(stdout, totals("1 file", 1, 1, 4, 1, 0))
+        self.assertEqual(stderr, "")
+
+
+class TestR25OnlyCombinedStatistics(SummaryOnlyTestCase):
+    """R25: with --summary-only, show only the combined statistics, without file blocks."""
+
+    def test_only_the_summary_is_printed(self):
+        result = self.run_program(FLAG, "a.txt", "b.txt")
+        self.assert_only_summary(result, totals("2 files", 3, 4, 18, 2, 0))
+        self.assertEqual(result.stderr, "")
+
+    def test_summary_shows_lines_words_characters_and_counts(self):
+        result = self.run_program(FLAG, "a.txt", "b.txt")
+        self.assertEqual(
+            result.stdout.splitlines(),
+            [
+                "Total (2 files)",
+                "Lines:      3",
+                "Words:      4",
+                "Characters: 18",
+                "Succeeded:  2",
+                "Failed:     0",
+            ],
+        )
+
+    def test_summary_is_the_same_as_without_the_flag(self):
+        args = ("a.txt", "missing.txt", "notes", "b.txt")
+        normal = self.run_program(*args)
+        summary_only = self.run_program(FLAG, *args)
+        self.assertEqual(summary_only.returncode, normal.returncode)
+        self.assertEqual(summary_only.stderr, normal.stderr)
+        self.assertTrue(normal.stdout.endswith(summary_only.stdout))
+        self.assertEqual(summary_only.stdout, totals("4 files", 6, 8, 36, 4, 1))
+
+    def test_single_file_shows_the_summary(self):
+        result = self.run_program(FLAG, "a.txt")
+        self.assert_only_summary(result, totals("1 file", 2, 3, 14, 1, 0))
+        self.assertEqual(result.stderr, "")
+
+    def test_failed_files_are_counted_and_errors_still_go_to_stderr(self):
+        result = self.run_program(FLAG, "a.txt", "missing.txt", "b.txt")
+        self.assert_only_summary(result, totals("2 files", 3, 4, 18, 2, 1), code=1)
+        self.assertEqual(
+            result.stderr,
+            "Error: 'missing.txt' was not found. Check the path and try again.\n",
+        )
+
+    def test_single_failed_file_shows_a_summary_of_zeros(self):
+        result = self.run_program(FLAG, "missing.txt")
+        self.assert_only_summary(result, totals("0 files", 0, 0, 0, 0, 1), code=1)
+        self.assertIn("'missing.txt' was not found", result.stderr)
+
+    def test_every_kind_of_file_error_is_reported_and_counted(self):
+        self.write(b"caf\xe9", "latin1.txt")
+        self.write(b"ab\x00cd", "binary.txt")
+        result = self.run_program(FLAG, "missing.txt", "latin1.txt", "binary.txt", "a.txt")
+        self.assert_only_summary(result, totals("1 file", 2, 3, 14, 1, 3), code=1)
+        errors = result.stderr.splitlines()
+        self.assertEqual(len(errors), 3)
+        self.assertIn("'missing.txt' was not found", errors[0])
+        self.assertIn("'latin1.txt' is not valid UTF-8", errors[1])
+        self.assertIn("'binary.txt' appears to be binary", errors[2])
+
+    def test_output_cannot_be_written(self):
+        read_end, write_end = os.pipe()
+        os.close(read_end)  # With no reader, every write to the pipe fails.
+        try:
+            result = subprocess.run(
+                [sys.executable, str(PROGRAM), FLAG, "a.txt", "b.txt"],
+                cwd=self.directory,
+                stdout=write_end,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=30,
+            )
+        finally:
+            os.close(write_end)
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stderr, "Error: Could not write the results.\n")
+
+
+class TestR26OutputWithoutFlag(SummaryOnlyTestCase):
+    """R26: without --summary-only, the output is exactly as in earlier rounds."""
+
+    def test_single_file_has_its_block_and_no_summary(self):
+        result = self.run_program("a.txt")
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, block("a.txt", 2, 3, 14, "three"))
+
+    def test_several_files_have_blocks_and_a_summary(self):
+        result = self.run_program("a.txt", "missing.txt", "b.txt")
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(
+            result.stdout,
+            block("a.txt", 2, 3, 14, "three")
+            + "\n"
+            + block("b.txt", 1, 1, 4, "four")
+            + "\n"
+            + totals("2 files", 3, 4, 18, 2, 1),
+        )
+        self.assertEqual(
+            result.stderr,
+            "Error: 'missing.txt' was not found. Check the path and try again.\n",
+        )
+
+    def test_directory_has_blocks_and_a_summary(self):
+        result = self.run_program("notes")
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(
+            result.stdout,
+            block(inside("notes", "A.txt"), 2, 3, 14, "three")
+            + "\n"
+            + block(inside("notes", "b.txt"), 1, 1, 4, "four")
+            + "\n"
+            + totals("2 files", 3, 4, 18, 2, 0),
+        )
+
+    def test_no_arguments_still_shows_the_round_1_message(self):
+        result = self.run_program()
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("required: file_path", result.stderr)
+        self.assertNotIn(FLAG + " requires", result.stderr)
+        self.assertEqual(result.stdout, "")
+
+    def test_main_without_the_flag_prints_file_blocks(self):
+        code, stdout, _ = self.run_in_process(self.directory / "b.txt")
+        self.assertEqual(code, 0)
+        self.assertEqual(stdout, block(self.directory / "b.txt", 1, 1, 4, "four"))
+
+
+class TestR27SummaryOnlyWithAllPathKinds(SummaryOnlyTestCase):
+    """R27: --summary-only works with files, directories, and any mix of them."""
+
+    def test_individual_file(self):
+        result = self.run_program(FLAG, "b.txt")
+        self.assert_only_summary(result, totals("1 file", 1, 1, 4, 1, 0))
+
+    def test_multiple_files(self):
+        result = self.run_program(FLAG, "a.txt", "b.txt", "a.txt")
+        self.assert_only_summary(result, totals("3 files", 5, 7, 32, 3, 0))
+
+    def test_directory(self):
+        result = self.run_program(FLAG, "notes")
+        self.assert_only_summary(result, totals("2 files", 3, 4, 18, 2, 0))
+        self.assertEqual(result.stderr, "")
+
+    def test_directory_with_one_txt_file(self):
+        self.write(b"x y z", "single/only.txt")
+        result = self.run_program(FLAG, "single")
+        self.assert_only_summary(result, totals("1 file", 1, 3, 5, 1, 0))
+
+    def test_multiple_directories(self):
+        self.write(b"x y z", "more/c.txt")
+        result = self.run_program(FLAG, "notes", "more")
+        self.assert_only_summary(result, totals("3 files", 4, 7, 23, 3, 0))
+
+    def test_files_and_directories_combined(self):
+        result = self.run_program("a.txt", FLAG, "notes", "b.txt")
+        self.assert_only_summary(result, totals("4 files", 6, 8, 36, 4, 0))
+        self.assertEqual(result.stderr, "")
+
+    def test_empty_directory(self):
+        (self.directory / "empty").mkdir()
+        result = self.run_program(FLAG, "empty")
+        self.assert_only_summary(result, totals("0 files", 0, 0, 0, 0, 0))
+        self.assertEqual(result.stderr, "")
+
+    def test_unreadable_file_in_a_directory(self):
+        self.write(b"\xff", "notes/bad.txt")
+        result = self.run_program(FLAG, "notes", "a.txt")
+        self.assert_only_summary(result, totals("3 files", 5, 7, 32, 3, 1), code=1)
+        self.assertEqual(
+            result.stderr,
+            f"Error: '{inside('notes', 'bad.txt')}' is not valid UTF-8. "
+            "Only UTF-8 text is supported.\n",
+        )
+
+    def test_directory_that_cannot_be_listed(self):
+        error = PermissionError(13, "Permission denied")
+        with mock.patch("os.scandir", side_effect=error):
+            code, stdout, stderr = self.run_in_process(
+                FLAG, self.notes, self.directory / "b.txt"
+            )
+        self.assertEqual(code, 1)
+        self.assertEqual(stdout, totals("1 file", 1, 1, 4, 1, 1))
+        self.assertEqual(
+            stderr, f"Error: Permission denied when reading directory '{self.notes}'.\n"
+        )
+
+
+class TestR28SummaryOnlyWithoutPaths(SummaryOnlyTestCase):
+    """R28: --summary-only without any paths shows a helpful error message."""
+
+    def test_flag_alone_is_a_usage_error(self):
+        result = self.run_program(FLAG)
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(result.stdout, "")
+        self.assertIn("usage: file_analyzer.py", result.stderr)
+        self.assertIn(NO_PATHS_MESSAGE, result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+
+    def test_message_names_what_is_missing(self):
+        result = self.run_program(FLAG)
+        self.assertEqual(result.stderr.splitlines()[-1], NO_PATHS_MESSAGE)
+
+    def test_flag_given_twice_without_paths(self):
+        result = self.run_program(FLAG, FLAG)
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(result.stdout, "")
+        self.assertIn(NO_PATHS_MESSAGE, result.stderr)
+
+    def test_main_exits_with_code_2_and_analyzes_nothing(self):
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with mock.patch("file_analyzer.analyze_file") as analyze:
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                with self.assertRaises(SystemExit) as raised:
+                    file_analyzer.main([FLAG])
+        self.assertEqual(raised.exception.code, 2)
+        analyze.assert_not_called()
+        self.assertEqual(stdout.getvalue(), "")
+        self.assertIn(NO_PATHS_MESSAGE, stderr.getvalue())
 
 
 if __name__ == "__main__":
