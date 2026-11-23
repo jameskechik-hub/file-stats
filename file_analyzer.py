@@ -1,6 +1,7 @@
 """Display line, word, and character counts and the longest word for UTF-8 text files.
 
 A directory path analyzes the .txt files directly inside it.
+With --summary-only, only the combined totals and file counts are shown.
 """
 
 import argparse
@@ -155,19 +156,33 @@ def main(argv=None):
     """Run the command-line program and return its exit code."""
     parser = argparse.ArgumentParser(
         prog="file_analyzer.py",
+        # Written out because nargs="*" would show the paths as optional.
+        usage="%(prog)s [-h] [--summary-only] file_path [file_path ...]",
         description=(
             "Count the lines, words, and characters in UTF-8 text files "
             "and find the longest word in each. A directory analyzes the "
             ".txt files directly inside it, in alphabetical order."
         ),
+        allow_abbrev=False,  # Only the exact --summary-only is accepted.
     )
     parser.add_argument(
         "file_paths",
-        nargs="+",
+        nargs="*",  # At least one is required; checked below for a clearer message.
         metavar="file_path",
         help="path of a text file, or of a directory whose .txt files to analyze",
     )
-    args = parser.parse_args(argv)  # Exits with code 2 if the arguments are wrong.
+    parser.add_argument(
+        "--summary-only",
+        action="store_true",
+        help="show only the combined totals and file counts, not each file",
+    )
+    # Intermixed, so the flag may come before, after, or between the paths (R24).
+    # Exits with code 2 if the arguments are wrong.
+    args = parser.parse_intermixed_args(argv)
+    if not args.file_paths:
+        if args.summary_only:  # R28
+            parser.error("--summary-only requires at least one file or directory path.")
+        parser.error("the following arguments are required: file_path")
 
     total = FileStats(0, 0, 0)
     analyzed = 0
@@ -195,15 +210,18 @@ def main(argv=None):
                 failed += 1
                 continue  # R11, R23: report the error and go on to the next file.
 
-            if not write_block(format_report(path, stats), first=analyzed == 0):
-                return 1
+            # R25: with --summary-only, file blocks are left out.
+            if not args.summary_only:
+                if not write_block(format_report(path, stats), first=analyzed == 0):
+                    return 1
             analyzed += 1
             total = add_stats(total, stats)
 
     # R11, R12, R22: a summary for several paths, or for any directory.
-    if len(args.file_paths) > 1 or any_directory:
+    # R25: --summary-only always shows it, even for a single file.
+    if args.summary_only or len(args.file_paths) > 1 or any_directory:
         summary = format_totals(analyzed, failed, total)
-        if not write_block(summary, first=analyzed == 0):
+        if not write_block(summary, first=args.summary_only or analyzed == 0):
             return 1
 
     return 1 if failed else 0
