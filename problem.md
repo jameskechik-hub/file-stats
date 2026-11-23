@@ -72,3 +72,29 @@ This round revises R11 from Round 2 to require explicit success and failure coun
 
 
 
+
+
+\## Round 5: Directory Analysis
+
+
+
+19: The program must accept a directory path as a command-line argument and analyze all regular files ending in .txt directly inside that directory.
+
+
+
+20: Directory analysis must not search subdirectories. Files must be processed in alphabetical order by filename.
+
+
+
+21: The program must display individual statistics for every successfully analyzed .txt file in the directory, following the existing output format.
+
+
+
+22: The program must display combined totals for all successfully analyzed files, including the successful and failed file counts introduced in Round 4.
+
+
+
+23: If an individual .txt file cannot be read, the program must report the error and continue analyzing the remaining eligible files.
+
+
+
