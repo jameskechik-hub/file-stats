@@ -1,6 +1,6 @@
 # File Statistics Analyzer
 
-A command-line program that counts the lines, words, and characters in one or more text files and finds the longest word in each.
+A command-line program that counts the lines, words, and characters in one or more text files, or in every `.txt` file in a directory, and finds the longest word in each.
 
 ## Requirements
 
@@ -58,6 +58,55 @@ Failed:     0
 
 If a file cannot be analyzed, its error is shown and the program continues with the next file. The summary at the end shows how many files were analyzed successfully (`Succeeded:`) and how many failed (`Failed:`). A path given twice is analyzed twice and counted twice. With a single path there is no summary.
 
+## Analyze a directory
+
+Give a directory instead of a file to analyze every `.txt` file directly inside it:
+
+```
+python file_analyzer.py notes
+python file_analyzer.py "C:\My Files\notes"
+python file_analyzer.py intro.txt notes chapters
+```
+
+- Only regular files whose names end in `.txt` are analyzed. Upper and lower case do not matter, so `READ.TXT` is included.
+- Other files (`readme.md`, `notes.txt.bak`) and subdirectories are ignored and are not counted. Subdirectories are never searched.
+- Files are processed in alphabetical order by name, ignoring case (`A.txt`, `apple.txt`, `b.txt`, `Cat.txt`). Numbers are compared character by character, so `10.txt` comes before `2.txt`.
+- The `File:` line shows the directory as you typed it, joined with the file name (`notes\A.txt` on Windows, `notes/A.txt` on Linux and macOS).
+- Directories and files can be mixed. Each directory is replaced, in place, by its `.txt` files.
+- A directory always gets the summary, even with only one `.txt` file. An empty directory prints a summary of zeros and exits with code 0.
+- If a `.txt` file cannot be read, its error is shown, it is counted in `Failed:`, and the program continues. A directory that cannot be listed is reported and counted as one failure.
+
+For example, if `notes` holds `A.txt`, `b.txt`, a file `bad.txt` that is not UTF-8, `readme.md`, and a subdirectory `old`, then on Windows `python file_analyzer.py notes` prints:
+
+```text
+File:       notes\A.txt
+Lines:      2
+Words:      3
+Characters: 14
+Longest:    three (5 characters)
+
+File:       notes\b.txt
+Lines:      1
+Words:      1
+Characters: 4
+Longest:    four (4 characters)
+
+Total (2 files)
+Lines:      3
+Words:      4
+Characters: 18
+Succeeded:  2
+Failed:     1
+```
+
+and shows this error, then exits with code 1:
+
+```text
+Error: 'notes\bad.txt' is not valid UTF-8. Only UTF-8 text is supported.
+```
+
+## Other options
+
 Show usage with `python file_analyzer.py --help`. If a file name starts with a dash, put `./` before it: `python file_analyzer.py "./-notes.txt"`.
 
 ## How counting works
@@ -75,8 +124,8 @@ Error messages are written to stderr.
 
 | Exit code | Meaning |
 |---|---|
-| 0 | Every file was analyzed |
-| 1 | At least one file could not be analyzed, or the results could not be written |
+| 0 | Every file was analyzed (including an empty directory) |
+| 1 | At least one file could not be analyzed, a directory could not be listed, or the results could not be written |
 | 2 | The command-line arguments were wrong |
 
 Only UTF-8 text is supported. In Windows PowerShell 5.1, `>` creates UTF-16 files by default, so create test files like this instead:
@@ -113,6 +162,13 @@ Add `-v` to list each test. The tests are in `tests/test_file_analyzer.py`, with
 | R16: N/A when a file has no words | `TestR16NoWords` |
 | R17: Number of successful files in the summary | `TestR17SucceededCount` |
 | R18: Number of failed files in the summary | `TestR18FailedCount` |
+| R19: Accept a directory and analyze its `.txt` files | `TestR19DirectoryInput` |
+| R20: No subdirectories, alphabetical order | `TestR20DirectoryOrder` |
+| R21: Statistics for each file in the directory | `TestR21DirectoryFileStatistics` |
+| R22: Combined totals and counts for a directory | `TestR22DirectoryTotals` |
+| R23: Report unreadable files and continue | `TestR23DirectoryErrors` |
+
+One test, `test_symbolic_link_to_a_file_is_included_and_broken_link_skipped`, is skipped when the system does not allow creating symbolic links (for example, Windows without Developer Mode or administrator rights).
 
 ## Design decisions
 
@@ -122,3 +178,4 @@ Add `-v` to list each test. The tests are in `tests/test_file_analyzer.py`, with
 - [0004: Multi-file output layout](docs/decisions/0004-multi-file-output-layout.md)
 - [0005: Longest word rules](docs/decisions/0005-longest-word-rules.md)
 - [0006: Success and failure counts](docs/decisions/0006-success-and-failure-counts.md)
+- [0007: Directory analysis](docs/decisions/0007-directory-analysis.md)
