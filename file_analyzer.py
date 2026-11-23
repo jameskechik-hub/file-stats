@@ -1,4 +1,7 @@
-"""Display line, word, and character counts and the longest word for UTF-8 text files."""
+"""Display line, word, and character counts and the longest word for UTF-8 text files.
+
+A directory path analyzes the .txt files directly inside it.
+"""
 
 import argparse
 import os
@@ -55,6 +58,32 @@ def analyze_file(path):
         raise AnalysisError(f"Could not read '{path}': not enough memory.")
 
     return FileStats(lines, words, characters, longest_word)
+
+
+def list_text_files(directory):
+    """Return the paths of the .txt files directly inside a directory (R19, R20).
+
+    Only regular files whose names end in .txt, ignoring case, are included.
+    Subdirectories are not searched. The paths are sorted by file name, ignoring
+    case, with the exact name breaking ties so the order is always the same.
+    Raise AnalysisError if the directory cannot be listed.
+    """
+    try:
+        with os.scandir(directory) as entries:
+            names = [
+                entry.name
+                for entry in entries
+                if entry.name.lower().endswith(".txt") and entry.is_file()
+            ]
+    except PermissionError:
+        raise AnalysisError(f"Permission denied when reading directory '{directory}'.")
+    except OSError as error:
+        raise AnalysisError(
+            f"Could not read directory '{directory}': {error.strerror or error}."
+        )
+
+    names.sort(key=lambda name: (name.casefold(), name))
+    return [os.path.join(directory, name) for name in names]
 
 
 def format_counts(stats):
@@ -128,36 +157,51 @@ def main(argv=None):
         prog="file_analyzer.py",
         description=(
             "Count the lines, words, and characters in UTF-8 text files "
-            "and find the longest word in each."
+            "and find the longest word in each. A directory analyzes the "
+            ".txt files directly inside it, in alphabetical order."
         ),
     )
     parser.add_argument(
         "file_paths",
         nargs="+",
         metavar="file_path",
-        help="path of a text file to analyze",
+        help="path of a text file, or of a directory whose .txt files to analyze",
     )
     args = parser.parse_args(argv)  # Exits with code 2 if the arguments are wrong.
 
     total = FileStats(0, 0, 0)
     analyzed = 0
     failed = 0
+    any_directory = False
 
-    for path in args.file_paths:
-        try:
-            stats = analyze_file(path)
-        except AnalysisError as error:
-            print(f"Error: {error}", file=sys.stderr, flush=True)
-            failed += 1
-            continue  # R11: report the error and go on to the next file.
+    for argument in args.file_paths:
+        # R19: a directory is replaced, in place, by the .txt files inside it.
+        if os.path.isdir(argument):
+            any_directory = True
+            try:
+                paths = list_text_files(argument)
+            except AnalysisError as error:
+                print(f"Error: {error}", file=sys.stderr, flush=True)
+                failed += 1
+                continue  # R23: a directory that cannot be listed is one failure.
+        else:
+            paths = [argument]
 
-        if not write_block(format_report(path, stats), first=analyzed == 0):
-            return 1
-        analyzed += 1
-        total = add_stats(total, stats)
+        for path in paths:
+            try:
+                stats = analyze_file(path)
+            except AnalysisError as error:
+                print(f"Error: {error}", file=sys.stderr, flush=True)
+                failed += 1
+                continue  # R11, R23: report the error and go on to the next file.
 
-    # R11, R12: the summary only makes sense when more than one path was given.
-    if len(args.file_paths) > 1:
+            if not write_block(format_report(path, stats), first=analyzed == 0):
+                return 1
+            analyzed += 1
+            total = add_stats(total, stats)
+
+    # R11, R12, R22: a summary for several paths, or for any directory.
+    if len(args.file_paths) > 1 or any_directory:
         summary = format_totals(analyzed, failed, total)
         if not write_block(summary, first=analyzed == 0):
             return 1
