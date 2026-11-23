@@ -42,6 +42,16 @@ Build a Python command-line application that analyzes text files and displays us
 
 18: The final summary must display the total number of files that failed analysis.
 
+19: Accept a directory path as a command-line argument and analyze all regular files ending in .txt directly inside that directory.
+
+20: Directory analysis does not search subdirectories. Files are processed in alphabetical order by filename.
+
+21: Display individual statistics for every successfully analyzed .txt file in the directory, following the existing output format.
+
+22: Display combined totals for all successfully analyzed files, including the successful and failed file counts introduced in Round 4.
+
+23: If an individual .txt file cannot be read, report the error and continue analyzing the remaining eligible files.
+
 
 
 \##  Design
@@ -72,6 +82,7 @@ R1-R6 refer to requirements 1-6 above.
 - Relative paths, absolute paths, and quoted paths containing spaces work.
 - Changed in Round 2: R9 replaces the Round 1 rule that exactly one path is accepted.
 - `-h` and `--help` show usage and exit with code 0.
+- Changed in Round 5: R19 also accepts directory paths. See "Round 5 Details" below.
 
 ### R2: Lines
 
@@ -133,11 +144,13 @@ Changed in Round 3: R14 adds a `Longest:` line after `Characters:`.
 
 With one path, these rules apply exactly as written. With several paths, R11 decides what happens when a file fails.
 
+Changed in Round 5: R19 replaces the "Path is a directory" row. A directory given on the command line is now analyzed (its `.txt` files are read) instead of being rejected. A directory that cannot be listed is still an error with exit code 1. See "Round 5 Details" below.
+
 ### Testing
 
 - Framework: `unittest`
 - Run all tests from the project root with `python -m unittest`.
-- Every requirement R1-R6, R9-R12, R13-R16, and R17-R18 has at least one test.
+- Every requirement R1-R6, R9-R12, R13-R16, R17-R18, and R19-R23 has at least one test.
 
 
 
@@ -180,6 +193,7 @@ Revised in Round 4: R11 now also requires the final summary to report how many f
 - The header gives the number of successfully analyzed files, as `1 file` or `N files`.
 - If no file was analyzed successfully, the totals are still shown, with `0 files` and zeros.
 - Changed in Round 4: R17 and R18 add `Succeeded:` and `Failed:` lines to the end of this block.
+- Changed in Round 5: the totals are also shown whenever a directory is given, even if it is the only path. See "Round 5 Details" below.
 
 Example with `python file_analyzer.py a.txt missing.txt b.txt`:
 
@@ -389,3 +403,103 @@ Failed:     2
 ```
 
 with two error lines on stderr and exit code 1.
+
+
+
+## Round 5 Details
+
+R19-R23 refer to requirements 19-23 above. Round 5 adds directory analysis. R19 replaces the R6 rule that a directory path is an error. All other requirements are unchanged.
+
+The user answered these questions before any code was written:
+
+- A directory can be mixed with file paths and other directories in one command.
+- A directory always shows the summary, even when it holds zero or one `.txt` file. An empty directory is not an error.
+- The `File:` line shows the directory as typed, joined with the file name.
+- Matching `.txt` and sorting by name both ignore letter case.
+
+### R19: Directory paths
+
+- Usage: `python file_analyzer.py <path> [<path> ...]`, where each path is a file or a directory.
+- When a path is a directory, the program analyzes every regular file directly inside it whose name ends in `.txt`.
+- The `.txt` match ignores letter case: `a.txt`, `B.TXT`, and `c.Txt` are all included. A file named exactly `.txt` and hidden files such as `.notes.txt` are included too, because their names end in `.txt`.
+- Not included, and not counted as failures: files with other extensions (`notes.md`, `notes.txt.bak`), files with no extension, and subdirectories, even one named `old.txt`.
+- A symbolic link to a regular file counts as a regular file. A broken link is skipped.
+- A directory is replaced, in place, by its `.txt` files. Paths before and after it keep their order. For example, `a.txt notes b.txt` processes `a.txt`, then the files in `notes`, then `b.txt`.
+- A file found both through a directory and as a separate path is analyzed and counted each time, as with repeated paths in R9.
+- A path that does not exist gets the R6 "not found" error, as before.
+
+### R20: No subdirectories, alphabetical order
+
+- Only the files directly inside the directory are read. Subdirectories are never opened.
+- Files are sorted by file name, ignoring letter case: `a.txt`, `B.txt`, `c.txt`. Names that differ only in case (possible on Linux) are ordered by their exact characters, so the order is always the same.
+- Sorting uses the file name only, never the size or the date.
+
+### R21: Statistics for each file
+
+- Each successfully analyzed file gets the usual block (R5, R10, R14), separated by one blank line.
+- The `File:` line shows the directory exactly as typed, joined with the file name by Python's `os.path.join`. On Windows, `notes` becomes `notes\a.txt`. On Linux and macOS it becomes `notes/a.txt`. A directory typed with a trailing slash, such as `notes/`, becomes `notes/a.txt`.
+
+### R22: Combined totals
+
+- The final summary (the R12 totals block, with the R17 `Succeeded:` and R18 `Failed:` lines) is shown when two or more paths are given **or** when any path is a directory.
+- So a single directory always gets a summary, even if it holds only one `.txt` file. A single file path still gets no summary, exactly as in Rounds 1-4.
+- The totals and counts cover every file analyzed in the command: the files found in directories and the files given directly.
+- An empty directory (no `.txt` files) is not an error. The program prints only the summary, with `Total (0 files)`, zeros, `Succeeded:  0`, and `Failed:     0`, and exits with code 0.
+
+### R23: Errors inside a directory
+
+- A `.txt` file that cannot be analyzed gets its R6 error on stderr and no block on stdout. The program continues with the next file, as in R11, and the file is counted in `Failed:`.
+- The error shows the file path in the same form as the `File:` line, for example `Error: 'notes\bad.txt' is not valid UTF-8. Only UTF-8 text is supported.`
+- If the directory itself cannot be listed, the program shows one error, counts it as **one** failure, and continues with the next path:
+
+| Situation | Message |
+|---|---|
+| Permission denied | `Error: Permission denied when reading directory 'notes'.` |
+| Any other listing failure | `Error: Could not read directory 'notes': <reason>.` |
+
+- `Succeeded` plus `Failed` equals the number of files tried plus the number of directories that could not be listed.
+- Exit codes do not change: 0 when nothing failed, 1 when any file or directory failed or output could not be written, and 2 for usage errors.
+
+### Example
+
+`notes` contains `b.txt` (`four`), `A.txt` (`one two\nthree\n`), `bad.txt` (not UTF-8), `readme.md`, and a subdirectory `old` holding `c.txt`. On Windows, `python file_analyzer.py notes` prints:
+
+```text
+File:       notes\A.txt
+Lines:      2
+Words:      3
+Characters: 14
+Longest:    three (5 characters)
+
+File:       notes\b.txt
+Lines:      1
+Words:      1
+Characters: 4
+Longest:    four (4 characters)
+
+Total (2 files)
+Lines:      3
+Words:      4
+Characters: 18
+Succeeded:  2
+Failed:     1
+```
+
+and on stderr:
+
+```text
+Error: 'notes\bad.txt' is not valid UTF-8. Only UTF-8 text is supported.
+```
+
+The exit code is 1. `readme.md` and `old\c.txt` are ignored.
+
+### Examples for R19-R23
+
+| Command | Files analyzed, in order | Summary | Exit code |
+|---|---|---|---|
+| `notes` (with `b.txt`, `A.txt`) | `notes\A.txt`, `notes\b.txt` | yes | 0 |
+| `notes` (only `a.txt`) | `notes\a.txt` | yes | 0 |
+| `empty` (no `.txt` files) | none | `Total (0 files)`, 0, 0 | 0 |
+| `x.txt notes y.txt` | `x.txt`, the files in `notes`, `y.txt` | yes | 0 |
+| `notes notes` | the files in `notes`, twice | yes | 0 |
+| `missing` | none, "not found" error | no (one path, not a directory) | 1 |
