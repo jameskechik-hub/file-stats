@@ -30,6 +30,14 @@ Build a Python command-line application that analyzes text files and displays us
 
 12: Display combined totals for lines, words, and characters across all successfully analyzed files.
 
+13: Identify the longest word in each successfully analyzed text file.
+
+14: Display the longest word and its character length alongside the existing file statistics.
+
+15: If multiple words share the maximum length, report the first one encountered.
+
+16: If a file contains no words, display "N/A" for its longest word and 0 for its length.
+
 
 
 \##  Design
@@ -100,6 +108,8 @@ Words:      85
 Characters: 472
 ```
 
+Changed in Round 3: R14 adds a `Longest:` line after `Characters:`.
+
 ### R6: Errors
 
 - Supported text files are UTF-8 (including ASCII), with or without a BOM.
@@ -123,7 +133,7 @@ With one path, these rules apply exactly as written. With several paths, R11 dec
 
 - Framework: `unittest`
 - Run all tests from the project root with `python -m unittest`.
-- Every requirement R1-R6 and R9-R12 has at least one test.
+- Every requirement R1-R6, R9-R12, and R13-R16 has at least one test.
 
 
 
@@ -142,7 +152,7 @@ R9-R12 refer to requirements 9-12 above. Requirement numbers 7 and 8 are not use
 
 - Each successfully analyzed file gets its own block in the R5 format.
 - Blocks are separated by one blank line.
-- With one path, the output is exactly the Round 1 output.
+- With one path, the output is exactly the Round 1 output. (Round 3 adds the R14 `Longest:` line to every block.)
 
 ### R11: Errors while processing several files
 
@@ -190,3 +200,84 @@ Error: 'missing.txt' was not found. Check the path and try again.
 ```
 
 The exit code is 1.
+
+Changed in Round 3: each file block in this example also gets the R14 `Longest:` line. The totals block does not change. See the Round 3 example below.
+
+
+
+## Round 3 Details
+
+R13-R16 refer to requirements 13-16 above.
+
+### R13: Longest word
+
+- A word is defined exactly as in R3: any run of non-whitespace characters, using the whitespace rules of Python's `str.split()`. Punctuation stays part of the word, so `end.` is a 4-character word and `--` is a word.
+- The longest word is found for each successfully analyzed file only. A file that fails (R6, R11) has no longest word.
+- The longest word is shown exactly as it appears in the file, with its original letter case.
+
+### R14: Display
+
+- Each file block gets one more line, after `Characters:`, in the same aligned format:
+
+```text
+File:       notes.txt
+Lines:      12
+Words:      85
+Characters: 472
+Longest:    extraordinary (13 characters)
+```
+
+- The length is the number of characters in the word, counted as in R4: decoded Unicode code points. `café` has length 4, an emoji has length 1, and `e` followed by a combining accent has length 2.
+- A length of 1 is shown as `(1 character)`. Every other length uses `characters`.
+- The R12 totals block does not show a longest word. It is unchanged from Round 2.
+
+### R15: Ties
+
+- If several words share the maximum length, the first one in the file is shown. "First" means earliest in the file, reading lines from top to bottom and words from left to right.
+- A later word that is equal in length does not replace the first one, even if it is a different word or has different letter case.
+
+### R16: No words
+
+- If a file has no words (it is empty or contains only whitespace), the line is:
+
+```text
+Longest:    N/A (0 characters)
+```
+
+- `N/A` here is not a word from the file. A file that really contains the word `N/A` shows `N/A (3 characters)`.
+
+### Examples for R13-R16
+
+| File content | Longest line |
+|---|---|
+| (empty) | `Longest:    N/A (0 characters)` |
+| ` \n\t\r\n` | `Longest:    N/A (0 characters)` |
+| `a` | `Longest:    a (1 character)` |
+| `cat dog bird` | `Longest:    bird (4 characters)` |
+| `cat dog ant` | `Longest:    cat (3 characters)` |
+| `one\nthree\nseven` | `Longest:    three (5 characters)` |
+| `don't stop -- well-known` | `Longest:    well-known (10 characters)` |
+| `see the end.` | `Longest:    end. (4 characters)` |
+
+Example with `python file_analyzer.py a.txt missing.txt b.txt`, where `a.txt` contains `one two\nthree\n` and `b.txt` contains `four`:
+
+```text
+File:       a.txt
+Lines:      2
+Words:      3
+Characters: 14
+Longest:    three (5 characters)
+
+File:       b.txt
+Lines:      1
+Words:      1
+Characters: 4
+Longest:    four (4 characters)
+
+Total (2 files)
+Lines:      3
+Words:      4
+Characters: 18
+```
+
+The error for `missing.txt` goes to stderr as in Round 2, and the exit code is 1.
