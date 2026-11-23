@@ -52,6 +52,16 @@ Build a Python command-line application that analyzes text files and displays us
 
 23: If an individual .txt file cannot be read, report the error and continue analyzing the remaining eligible files.
 
+24: Accept an optional --summary-only command-line flag.
+
+25: When --summary-only is provided, display only the combined statistics, including total lines, words, characters, successful files, and failed files. Individual file statistics are omitted.
+
+26: When --summary-only is not provided, preserve the existing output behavior.
+
+27: The --summary-only flag works with individual files, multiple files, directories, and combinations of file and directory paths.
+
+28: Display a helpful error message if --summary-only is provided without any file or directory paths.
+
 
 
 \##  Design
@@ -83,6 +93,7 @@ R1-R6 refer to requirements 1-6 above.
 - Changed in Round 2: R9 replaces the Round 1 rule that exactly one path is accepted.
 - `-h` and `--help` show usage and exit with code 0.
 - Changed in Round 5: R19 also accepts directory paths. See "Round 5 Details" below.
+- Changed in Round 6: R24 adds the optional `--summary-only` flag. See "Round 6 Details" below.
 
 ### R2: Lines
 
@@ -150,7 +161,7 @@ Changed in Round 5: R19 replaces the "Path is a directory" row. A directory give
 
 - Framework: `unittest`
 - Run all tests from the project root with `python -m unittest`.
-- Every requirement R1-R6, R9-R12, R13-R16, R17-R18, and R19-R23 has at least one test.
+- Every requirement R1-R6, R9-R12, R13-R16, R17-R18, R19-R23, and R24-R28 has at least one test.
 
 
 
@@ -194,6 +205,7 @@ Revised in Round 4: R11 now also requires the final summary to report how many f
 - If no file was analyzed successfully, the totals are still shown, with `0 files` and zeros.
 - Changed in Round 4: R17 and R18 add `Succeeded:` and `Failed:` lines to the end of this block.
 - Changed in Round 5: the totals are also shown whenever a directory is given, even if it is the only path. See "Round 5 Details" below.
+- Changed in Round 6: with `--summary-only`, the totals are always shown, even for a single file path, and the file blocks are not. See "Round 6 Details" below.
 
 Example with `python file_analyzer.py a.txt missing.txt b.txt`:
 
@@ -503,3 +515,89 @@ The exit code is 1. `readme.md` and `old\c.txt` are ignored.
 | `x.txt notes y.txt` | `x.txt`, the files in `notes`, `y.txt` | yes | 0 |
 | `notes notes` | the files in `notes`, twice | yes | 0 |
 | `missing` | none, "not found" error | no (one path, not a directory) | 1 |
+
+
+
+## Round 6 Details
+
+R24-R28 refer to requirements 24-28 above. Round 6 adds the `--summary-only` flag. Without the flag, nothing changes. All earlier requirements are unchanged.
+
+The user answered these questions before any code was written:
+
+- With `--summary-only`, the summary is always shown, even for a single file path. This replaces, for this flag only, the R12/R22 rule that a single file path gets no summary.
+- Error messages for files and directories that fail are still written to stderr. Only stdout is reduced to the summary.
+- `--summary-only` with no paths is a usage error: exit code 2, the usage line, and a specific message.
+- The flag may appear anywhere on the command line: before, after, or between the paths.
+
+### R24: The flag
+
+- Usage: `python file_analyzer.py [--summary-only] <path> [<path> ...]`, where each path is a file or a directory (R19).
+- The flag is optional. It may come before, after, or between the paths. `a.txt --summary-only b.txt` is the same as `--summary-only a.txt b.txt`.
+- Giving the flag more than once has the same effect as giving it once.
+- Only the exact spelling `--summary-only` is accepted. Abbreviations such as `--summary` are unknown options (usage error, exit code 2).
+- `-h` and `--help` list the flag.
+- A file whose name starts with a dash, including a file named `--summary-only`, can still be analyzed by writing `./` before it, as in Round 1.
+
+### R25: Only the combined statistics
+
+- With `--summary-only`, stdout holds only the final summary: the R12 totals block with the R17 `Succeeded:` and R18 `Failed:` lines, in exactly the Round 4 format.
+- No file blocks (R5, R10, R14, R21) are printed, and no blank line comes before the summary.
+- The summary is always shown, whatever paths are given, including a single file path.
+- The totals and counts are computed exactly as without the flag: the same files are analyzed, in the same order, and failed files are counted in `Failed:`.
+- Errors still go to stderr, using the same messages as R6 and R23, one per failed file or unlistable directory.
+- Exit codes do not change: 0 when nothing failed, 1 when any file or directory failed or the output could not be written, and 2 for usage errors.
+
+### R26: Without the flag
+
+- Without `--summary-only`, the output, errors, and exit codes are exactly as in Rounds 1-5. A single file path still gets no summary.
+
+### R27: All kinds of paths
+
+- `--summary-only` works the same way with a single file, several files, a single directory, several directories, and any mix of files and directories.
+- An empty directory gives `Total (0 files)` with zeros, `Succeeded:  0`, and `Failed:     0`, and exit code 0, as in R22.
+
+### R28: No paths
+
+- `--summary-only` with no file or directory paths analyzes nothing, prints nothing on stdout, and exits with code 2.
+- stderr shows the usage line and this message:
+
+```text
+file_analyzer.py: error: --summary-only requires at least one file or directory path.
+```
+
+- With no arguments at all, the Round 1 message (`the following arguments are required: file_path`) is unchanged.
+
+### Example
+
+`python file_analyzer.py --summary-only a.txt missing.txt b.txt`, where `a.txt` contains `one two\nthree\n` and `b.txt` contains `four`, prints:
+
+```text
+Total (2 files)
+Lines:      3
+Words:      4
+Characters: 18
+Succeeded:  2
+Failed:     1
+```
+
+and on stderr:
+
+```text
+Error: 'missing.txt' was not found. Check the path and try again.
+```
+
+The exit code is 1.
+
+### Examples for R24-R28
+
+| Command | stdout | Exit code |
+|---|---|---|
+| `--summary-only a.txt` | `Total (1 file)` summary, `Succeeded:  1`, `Failed:     0` | 0 |
+| `--summary-only missing.txt` | `Total (0 files)` summary, `Succeeded:  0`, `Failed:     1` | 1 |
+| `--summary-only a.txt b.txt` | `Total (2 files)` summary only | 0 |
+| `a.txt b.txt --summary-only` | same as above | 0 |
+| `--summary-only notes` | summary of the `.txt` files in `notes` | 0 |
+| `--summary-only x.txt notes` | one summary covering `x.txt` and the files in `notes` | 0 |
+| `--summary-only empty` | `Total (0 files)`, zeros, `Failed:     0` | 0 |
+| `--summary-only` | nothing (usage error on stderr) | 2 |
+| `a.txt` (no flag) | the Round 3 file block, no summary | 0 |
