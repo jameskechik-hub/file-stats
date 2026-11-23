@@ -12,8 +12,10 @@ A command-line program that counts the lines, words, and characters in one or mo
 From the project root:
 
 ```
-python file_analyzer.py <file_path> [<file_path> ...]
+python file_analyzer.py [--summary-only] <file_path> [<file_path> ...]
 ```
+
+Each path can be a file or a directory. `--summary-only` is optional (see [Show only the summary](#show-only-the-summary)).
 
 For example:
 
@@ -105,9 +107,44 @@ and shows this error, then exits with code 1:
 Error: 'notes\bad.txt' is not valid UTF-8. Only UTF-8 text is supported.
 ```
 
+## Show only the summary
+
+Add `--summary-only` to print only the combined totals and file counts, without a block for each file:
+
+```
+python file_analyzer.py --summary-only notes.txt draft.txt
+python file_analyzer.py --summary-only notes
+python file_analyzer.py intro.txt notes chapters --summary-only
+```
+
+For example, `python file_analyzer.py --summary-only a.txt missing.txt b.txt` prints:
+
+```text
+Total (2 files)
+Lines:      3
+Words:      4
+Characters: 18
+Succeeded:  2
+Failed:     1
+```
+
+and shows this error, then exits with code 1:
+
+```text
+Error: 'missing.txt' was not found. Check the path and try again.
+```
+
+- The summary is the same one shown at the end of the normal output. Only the file blocks are left out.
+- The summary is always shown with `--summary-only`, even for a single file (`Total (1 file)`).
+- It works with files, directories, and any mix of them. An empty directory gives a summary of zeros.
+- The flag can go before, after, or between the paths. Abbreviations such as `--summary` are not accepted.
+- Errors are still shown, and the exit codes are the same as without the flag.
+- `--summary-only` with no paths shows `error: --summary-only requires at least one file or directory path.` and exits with code 2.
+- Without `--summary-only`, the output is exactly as before.
+
 ## Other options
 
-Show usage with `python file_analyzer.py --help`. If a file name starts with a dash, put `./` before it: `python file_analyzer.py "./-notes.txt"`.
+Show usage with `python file_analyzer.py --help`. If a file name starts with a dash, put `./` before it: `python file_analyzer.py "./-notes.txt"`. This also works for a file named `--summary-only`.
 
 ## How counting works
 
@@ -126,7 +163,7 @@ Error messages are written to stderr.
 |---|---|
 | 0 | Every file was analyzed (including an empty directory) |
 | 1 | At least one file could not be analyzed, a directory could not be listed, or the results could not be written |
-| 2 | The command-line arguments were wrong |
+| 2 | The command-line arguments were wrong (including `--summary-only` with no paths) |
 
 Only UTF-8 text is supported. In Windows PowerShell 5.1, `>` creates UTF-16 files by default, so create test files like this instead:
 
@@ -167,6 +204,11 @@ Add `-v` to list each test. The tests are in `tests/test_file_analyzer.py`, with
 | R21: Statistics for each file in the directory | `TestR21DirectoryFileStatistics` |
 | R22: Combined totals and counts for a directory | `TestR22DirectoryTotals` |
 | R23: Report unreadable files and continue | `TestR23DirectoryErrors` |
+| R24: Accept the optional `--summary-only` flag | `TestR24SummaryOnlyFlag` |
+| R25: Show only the combined statistics | `TestR25OnlyCombinedStatistics` |
+| R26: Unchanged output without the flag | `TestR26OutputWithoutFlag` |
+| R27: Works with files, directories, and mixes | `TestR27SummaryOnlyWithAllPathKinds` |
+| R28: Error when the flag has no paths | `TestR28SummaryOnlyWithoutPaths` |
 
 One test, `test_symbolic_link_to_a_file_is_included_and_broken_link_skipped`, is skipped when the system does not allow creating symbolic links (for example, Windows without Developer Mode or administrator rights).
 
@@ -179,3 +221,4 @@ One test, `test_symbolic_link_to_a_file_is_included_and_broken_link_skipped`, is
 - [0005: Longest word rules](docs/decisions/0005-longest-word-rules.md)
 - [0006: Success and failure counts](docs/decisions/0006-success-and-failure-counts.md)
 - [0007: Directory analysis](docs/decisions/0007-directory-analysis.md)
+- [0008: Summary-only flag](docs/decisions/0008-summary-only-flag.md)
