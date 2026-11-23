@@ -52,9 +52,11 @@ Total (2 files)
 Lines:      15
 Words:      105
 Characters: 582
+Succeeded:  2
+Failed:     0
 ```
 
-If a file cannot be analyzed, its error is shown and the program continues with the next file. A path given twice is analyzed twice.
+If a file cannot be analyzed, its error is shown and the program continues with the next file. The summary at the end shows how many files were analyzed successfully (`Succeeded:`) and how many failed (`Failed:`). A path given twice is analyzed twice and counted twice. With a single path there is no summary.
 
 Show usage with `python file_analyzer.py --help`. If a file name starts with a dash, put `./` before it: `python file_analyzer.py "./-notes.txt"`.
 
@@ -103,12 +105,14 @@ Add `-v` to list each test. The tests are in `tests/test_file_analyzer.py`, with
 | R6: Report errors | `TestR6Errors` |
 | R9: Accept multiple paths | `TestR9MultiplePaths` |
 | R10: Separate statistics per file | `TestR10SeparateStatistics` |
-| R11: Continue after a file error | `TestR11ContinueAfterErrors` |
+| R11 (revised in Round 4): Continue after a file error, report each error, and count successes and failures | `TestR11ContinueAfterErrors` |
 | R12: Combined totals | `TestR12CombinedTotals` |
 | R13: Find the longest word | `TestR13LongestWord` |
 | R14: Display the longest word and its length | `TestR14LongestWordDisplay` |
 | R15: First word wins a tie | `TestR15LongestWordTies` |
 | R16: N/A when a file has no words | `TestR16NoWords` |
+| R17: Number of successful files in the summary | `TestR17SucceededCount` |
+| R18: Number of failed files in the summary | `TestR18FailedCount` |
 
 ## Design decisions
 
@@ -117,3 +121,4 @@ Add `-v` to list each test. The tests are in `tests/test_file_analyzer.py`, with
 - [0003: Continue after file errors](docs/decisions/0003-continue-after-file-errors.md)
 - [0004: Multi-file output layout](docs/decisions/0004-multi-file-output-layout.md)
 - [0005: Longest word rules](docs/decisions/0005-longest-word-rules.md)
+- [0006: Success and failure counts](docs/decisions/0006-success-and-failure-counts.md)
