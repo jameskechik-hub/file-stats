@@ -1,4 +1,4 @@
-"""Automated tests, with one test class for each requirement (R1-R6, R9-R16)."""
+"""Automated tests, with one test class for each requirement (R1-R6, R9-R18)."""
 
 import io
 import os
@@ -338,13 +338,21 @@ def block(path, lines, words, characters, longest):
     ) + longest_line(longest)
 
 
-def totals(header, lines, words, characters):
+def totals(header, lines, words, characters, succeeded, failed):
+    """Return the final summary: R12 totals plus the R17 and R18 file counts."""
     return (
         f"Total ({header})\n"
         f"Lines:      {lines}\n"
         f"Words:      {words}\n"
         f"Characters: {characters}\n"
+        f"Succeeded:  {succeeded}\n"
+        f"Failed:     {failed}\n"
     )
+
+
+def summary_counts(stdout):
+    """Return the last two lines of the output, where R17 and R18 put the counts."""
+    return stdout.splitlines()[-2:]
 
 
 class MultiFileTestCase(AnalyzerTestCase):
@@ -409,7 +417,7 @@ class TestR10SeparateStatistics(MultiFileTestCase):
             + "\n"
             + block("b.txt", 1, 1, 4, "four")
             + "\n"
-            + totals("2 files", 3, 4, 18),
+            + totals("2 files", 3, 4, 18, 2, 0),
         )
 
     def test_each_file_gets_its_own_counts(self):
@@ -427,6 +435,9 @@ class TestR10SeparateStatistics(MultiFileTestCase):
 
 
 class TestR11ContinueAfterErrors(MultiFileTestCase):
+    """R11 (revised in Round 4): continue after a failure, show an error for
+    each failed file, and report the success and failure counts in the summary."""
+
     def test_missing_file_in_the_middle(self):
         result = self.run_program("a.txt", "missing.txt", "b.txt")
         self.assertEqual(result.returncode, 1)
@@ -440,7 +451,7 @@ class TestR11ContinueAfterErrors(MultiFileTestCase):
             + "\n"
             + block("b.txt", 1, 1, 4, "four")
             + "\n"
-            + totals("2 files", 3, 4, 18),
+            + totals("2 files", 3, 4, 18, 2, 1),
         )
 
     def test_failure_first_or_last(self):
@@ -451,7 +462,9 @@ class TestR11ContinueAfterErrors(MultiFileTestCase):
                 self.assertIn("'missing.txt' was not found", result.stderr)
                 self.assertEqual(
                     result.stdout,
-                    block("a.txt", 2, 3, 14, "three") + "\n" + totals("1 file", 2, 3, 14),
+                    block("a.txt", 2, 3, 14, "three")
+                    + "\n"
+                    + totals("1 file", 2, 3, 14, 1, 1),
                 )
 
     def test_every_kind_of_error_is_reported_and_skipped(self):
@@ -471,6 +484,40 @@ class TestR11ContinueAfterErrors(MultiFileTestCase):
         self.assertNotIn("Traceback", result.stderr)
         self.assertEqual(result.stdout.count("File:"), 2)
         self.assertNotIn("latin1.txt", result.stdout)
+        self.assertEqual(
+            summary_counts(result.stdout), ["Succeeded:  2", "Failed:     4"]
+        )
+
+    def test_each_failed_file_gets_its_own_error(self):
+        result = self.run_program("missing1.txt", "a.txt", "missing2.txt", "b.txt")
+        self.assertEqual(
+            result.stderr,
+            "Error: 'missing1.txt' was not found. Check the path and try again.\n"
+            "Error: 'missing2.txt' was not found. Check the path and try again.\n",
+        )
+        self.assertEqual(result.stdout.count("File:"), 2)
+        self.assertTrue(result.stdout.endswith(totals("2 files", 3, 4, 18, 2, 2)))
+
+    def test_summary_reports_successes_and_failures(self):
+        examples = (
+            (("a.txt", "b.txt"), 2, 0),
+            (("a.txt", "missing.txt", "b.txt"), 2, 1),
+            (("missing1.txt", "missing2.txt"), 0, 2),
+        )
+        for paths, succeeded, failed in examples:
+            with self.subTest(paths=paths):
+                result = self.run_program(*paths)
+                self.assertEqual(
+                    summary_counts(result.stdout),
+                    [f"Succeeded:  {succeeded}", f"Failed:     {failed}"],
+                )
+
+    def test_single_path_has_no_summary(self):
+        for path in ("a.txt", "missing.txt"):
+            with self.subTest(path=path):
+                result = self.run_program(path)
+                self.assertNotIn("Succeeded:", result.stdout)
+                self.assertNotIn("Failed:", result.stdout)
 
     def test_permission_error_does_not_stop_processing(self):
         locked = str(self.directory / "locked.txt")
@@ -489,13 +536,13 @@ class TestR11ContinueAfterErrors(MultiFileTestCase):
         self.assertEqual(code, 1)
         self.assertIn(f"Permission denied when reading '{locked}'", stderr.getvalue())
         self.assertIn(block(good, 2, 3, 14, "three"), stdout.getvalue())
-        self.assertIn(totals("1 file", 2, 3, 14), stdout.getvalue())
+        self.assertIn(totals("1 file", 2, 3, 14, 1, 1), stdout.getvalue())
 
     def test_all_files_fail(self):
         result = self.run_program("missing1.txt", "missing2.txt")
         self.assertEqual(result.returncode, 1)
         self.assertEqual(len(result.stderr.splitlines()), 2)
-        self.assertEqual(result.stdout, totals("0 files", 0, 0, 0))
+        self.assertEqual(result.stdout, totals("0 files", 0, 0, 0, 0, 2))
 
     def test_output_failure_stops_processing(self):
         read_end, write_end = os.pipe()
@@ -519,27 +566,27 @@ class TestR12CombinedTotals(MultiFileTestCase):
     def test_totals_add_up_every_file(self):
         self.write("café\r\n".encode(), "c.txt")  # 1 line, 1 word, 5 characters
         result = self.run_program("a.txt", "b.txt", "c.txt")
-        self.assertTrue(result.stdout.endswith("\n\n" + totals("3 files", 4, 5, 23)))
+        self.assertTrue(result.stdout.endswith("\n\n" + totals("3 files", 4, 5, 23, 3, 0)))
 
     def test_totals_skip_failed_files(self):
         self.write(b"bad \xff", "bad.txt")
         result = self.run_program("a.txt", "bad.txt", "b.txt")
-        self.assertTrue(result.stdout.endswith(totals("2 files", 3, 4, 18)))
+        self.assertTrue(result.stdout.endswith(totals("2 files", 3, 4, 18, 2, 1)))
 
     def test_one_successful_file_uses_singular(self):
         result = self.run_program("b.txt", "missing.txt")
-        self.assertTrue(result.stdout.endswith(totals("1 file", 1, 1, 4)))
+        self.assertTrue(result.stdout.endswith(totals("1 file", 1, 1, 4, 1, 1)))
 
     def test_repeated_path_counts_twice(self):
         result = self.run_program("b.txt", "b.txt")
-        self.assertTrue(result.stdout.endswith(totals("2 files", 2, 2, 8)))
+        self.assertTrue(result.stdout.endswith(totals("2 files", 2, 2, 8, 2, 0)))
 
     def test_empty_files_total_zero(self):
         self.write(b"", "empty1.txt")
         self.write(b"", "empty2.txt")
         result = self.run_program("empty1.txt", "empty2.txt")
         self.assertEqual(result.returncode, 0)
-        self.assertTrue(result.stdout.endswith(totals("2 files", 0, 0, 0)))
+        self.assertTrue(result.stdout.endswith(totals("2 files", 0, 0, 0, 2, 0)))
 
     def test_no_totals_for_a_single_path(self):
         for path in ("a.txt", "missing.txt"):
@@ -551,7 +598,7 @@ class TestR12CombinedTotals(MultiFileTestCase):
         self.write(b"two words\n" * 50_000, "big2.txt")
         result = self.run_program("big1.txt", "big2.txt")
         self.assertTrue(
-            result.stdout.endswith(totals("2 files", 150_000, 300_000, 1_500_000))
+            result.stdout.endswith(totals("2 files", 150_000, 300_000, 1_500_000, 2, 0))
         )
 
 
@@ -663,14 +710,16 @@ class TestR14LongestWordDisplay(MultiFileTestCase):
             "Total (2 files)\n"
             "Lines:      3\n"
             "Words:      4\n"
-            "Characters: 18\n",
+            "Characters: 18\n"
+            "Succeeded:  2\n"
+            "Failed:     1\n",
         )
         self.assertEqual(result.returncode, 1)
 
     def test_totals_block_has_no_longest_word(self):
         result = self.run_program("a.txt", "b.txt")
         totals_block = result.stdout.split("\n\n")[-1]
-        self.assertEqual(totals_block, totals("2 files", 3, 4, 18))
+        self.assertEqual(totals_block, totals("2 files", 3, 4, 18, 2, 0))
 
     def test_unprintable_word_does_not_crash(self):
         self.write("日本".encode())
@@ -737,7 +786,134 @@ class TestR16NoWords(MultiFileTestCase):
         self.assertEqual(result.returncode, 0)
         self.assertIn(block("empty.txt", 0, 0, 0, None), result.stdout)
         self.assertIn(block("a.txt", 2, 3, 14, "three"), result.stdout)
-        self.assertTrue(result.stdout.endswith(totals("3 files", 3, 4, 18)))
+        self.assertTrue(result.stdout.endswith(totals("3 files", 3, 4, 18, 3, 0)))
+
+
+class TestR17SucceededCount(MultiFileTestCase):
+    """R17: the final summary shows the number of successfully analyzed files."""
+
+    def test_line_follows_characters_in_the_summary(self):
+        result = self.run_program("a.txt", "b.txt")
+        self.assertTrue(
+            result.stdout.endswith(
+                "Characters: 18\n" "Succeeded:  2\n" "Failed:     0\n"
+            )
+        )
+
+    def test_counts_only_successful_files(self):
+        self.write(b"bad \xff", "bad.txt")
+        result = self.run_program("a.txt", "bad.txt", "missing.txt", "b.txt")
+        self.assertIn("Succeeded:  2\n", result.stdout)
+
+    def test_matches_the_totals_header(self):
+        for paths, header in (
+            (("a.txt", "b.txt", "a.txt"), "Total (3 files)"),
+            (("b.txt", "missing.txt"), "Total (1 file)"),
+            (("missing.txt", "missing.txt"), "Total (0 files)"),
+        ):
+            with self.subTest(paths=paths):
+                stdout = self.run_program(*paths).stdout
+                count = header.split("(")[1].split()[0]
+                self.assertIn(header + "\n", stdout)
+                self.assertIn(f"Succeeded:  {count}\n", stdout)
+
+    def test_zero_when_every_file_fails(self):
+        result = self.run_program("missing1.txt", "missing2.txt")
+        self.assertEqual(summary_counts(result.stdout)[0], "Succeeded:  0")
+
+    def test_empty_file_counts_as_a_success(self):
+        self.write(b"", "empty.txt")
+        result = self.run_program("empty.txt", "a.txt")
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(summary_counts(result.stdout)[0], "Succeeded:  2")
+
+    def test_repeated_path_counts_each_time(self):
+        result = self.run_program("b.txt", "b.txt", "b.txt")
+        self.assertEqual(summary_counts(result.stdout)[0], "Succeeded:  3")
+
+    def test_file_blocks_do_not_show_the_count(self):
+        result = self.run_program("a.txt", "b.txt")
+        self.assertEqual(result.stdout.count("Succeeded:"), 1)
+        for file_block in result.stdout.split("\n\n")[:-1]:
+            self.assertNotIn("Succeeded:", file_block)
+
+    def test_no_count_for_a_single_path(self):
+        self.assertNotIn("Succeeded:", self.run_program("a.txt").stdout)
+
+
+class TestR18FailedCount(MultiFileTestCase):
+    """R18: the final summary shows the number of files that failed analysis."""
+
+    def test_line_is_last_and_follows_succeeded(self):
+        result = self.run_program("a.txt", "missing.txt", "b.txt")
+        self.assertEqual(
+            summary_counts(result.stdout), ["Succeeded:  2", "Failed:     1"]
+        )
+        self.assertTrue(result.stdout.endswith("Failed:     1\n"))
+
+    def test_zero_is_shown_when_nothing_fails(self):
+        result = self.run_program("a.txt", "b.txt")
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(summary_counts(result.stdout)[1], "Failed:     0")
+
+    def test_every_kind_of_failure_is_counted(self):
+        self.write(b"caf\xe9", "latin1.txt")
+        self.write(b"ab\x00cd", "binary.txt")
+        (self.directory / "folder").mkdir()
+        result = self.run_program(
+            "latin1.txt", "folder", "binary.txt", "missing.txt", "a.txt"
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(summary_counts(result.stdout)[1], "Failed:     4")
+
+    def test_permission_denied_is_counted(self):
+        locked = str(self.directory / "locked.txt")
+        real_open = open
+
+        def fake_open(path, *args, **kwargs):
+            if str(path) == locked:
+                raise PermissionError(13, "Permission denied")
+            return real_open(path, *args, **kwargs)
+
+        stdout = io.StringIO()
+        with mock.patch("builtins.open", fake_open):
+            with redirect_stdout(stdout), redirect_stderr(io.StringIO()):
+                code = file_analyzer.main([locked, str(self.directory / "a.txt")])
+        self.assertEqual(code, 1)
+        self.assertEqual(
+            summary_counts(stdout.getvalue()), ["Succeeded:  1", "Failed:     1"]
+        )
+
+    def test_every_file_fails(self):
+        result = self.run_program("missing1.txt", "missing2.txt", "missing3.txt")
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stdout, totals("0 files", 0, 0, 0, 0, 3))
+
+    def test_repeated_failing_path_counts_each_time(self):
+        result = self.run_program("missing.txt", "a.txt", "missing.txt")
+        self.assertEqual(len(result.stderr.splitlines()), 2)
+        self.assertEqual(summary_counts(result.stdout)[1], "Failed:     2")
+
+    def test_counts_add_up_to_the_number_of_paths(self):
+        paths = ("a.txt", "missing.txt", "b.txt", "a.txt", "gone.txt")
+        result = self.run_program(*paths)
+        succeeded, failed = (
+            int(line.split()[-1]) for line in summary_counts(result.stdout)
+        )
+        self.assertEqual((succeeded, failed), (3, 2))
+        self.assertEqual(succeeded + failed, len(paths))
+
+    def test_failed_count_matches_error_messages(self):
+        result = self.run_program("missing1.txt", "a.txt", "missing2.txt")
+        self.assertEqual(
+            summary_counts(result.stdout)[1],
+            f"Failed:     {len(result.stderr.splitlines())}",
+        )
+
+    def test_no_count_for_a_single_failing_path(self):
+        result = self.run_program("missing.txt")
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stdout, "")
 
 
 if __name__ == "__main__":
