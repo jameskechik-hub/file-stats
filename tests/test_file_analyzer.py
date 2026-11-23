@@ -1,4 +1,4 @@
-"""Automated tests, with one test class for each requirement (R1-R6)."""
+"""Automated tests, with one test class for each requirement (R1-R6, R9-R12)."""
 
 import io
 import os
@@ -248,11 +248,6 @@ class TestR6Errors(AnalyzerTestCase):
         self.assert_error(result, "usage: file_analyzer.py", code=2)
         self.assertIn("required: file_path", result.stderr)
 
-    def test_extra_argument(self):
-        result = self.run_program("one.txt", "two.txt")
-        self.assert_error(result, "usage: file_analyzer.py", code=2)
-        self.assertIn("unrecognized arguments: two.txt", result.stderr)
-
     def test_unknown_option(self):
         result = self.run_program("--unknown", "notes.txt")
         self.assert_error(result, "usage: file_analyzer.py", code=2)
@@ -321,6 +316,233 @@ class TestR6Errors(AnalyzerTestCase):
             os.close(write_end)
         self.assertEqual(result.returncode, 1)
         self.assertEqual(result.stderr, "Error: Could not write the results.\n")
+
+
+def block(path, lines, words, characters):
+    """Return one file's report, as printed by the program."""
+    return (
+        f"File:       {path}\n"
+        f"Lines:      {lines}\n"
+        f"Words:      {words}\n"
+        f"Characters: {characters}\n"
+    )
+
+
+def totals(header, lines, words, characters):
+    return (
+        f"Total ({header})\n"
+        f"Lines:      {lines}\n"
+        f"Words:      {words}\n"
+        f"Characters: {characters}\n"
+    )
+
+
+class MultiFileTestCase(AnalyzerTestCase):
+    """Create two small files whose statistics are easy to check."""
+
+    def setUp(self):
+        super().setUp()
+        self.write(b"one two\nthree\n", "a.txt")  # 2 lines, 3 words, 14 characters
+        self.write(b"four", "b.txt")  # 1 line, 1 word, 4 characters
+
+
+class TestR9MultiplePaths(MultiFileTestCase):
+    def test_accepts_two_paths(self):
+        result = self.run_program("a.txt", "b.txt")
+        self.assertEqual(result.returncode, 0)
+        self.assertIn(block("a.txt", 2, 3, 14), result.stdout)
+        self.assertIn(block("b.txt", 1, 1, 4), result.stdout)
+        self.assertEqual(result.stderr, "")
+
+    def test_accepts_many_paths_of_different_kinds(self):
+        self.write(b"x y", "my folder/c d.txt")
+        absolute = self.write(b"z", "e.txt").resolve()
+        result = self.run_program("a.txt", "my folder/c d.txt", absolute, "./b.txt")
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout.count("File:"), 4)
+        self.assertIn(block("my folder/c d.txt", 1, 2, 3), result.stdout)
+        self.assertIn(block(absolute, 1, 1, 1), result.stdout)
+
+    def test_files_are_processed_in_the_order_given(self):
+        result = self.run_program("b.txt", "a.txt")
+        self.assertLess(result.stdout.index("b.txt"), result.stdout.index("a.txt"))
+
+    def test_repeated_path_is_analyzed_each_time(self):
+        result = self.run_program("a.txt", "a.txt")
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout.count(block("a.txt", 2, 3, 14)), 2)
+
+    def test_help_shows_several_paths(self):
+        result = self.run_program("--help")
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("file_path [file_path ...]", result.stdout)
+
+    def test_no_paths_shows_usage(self):
+        result = self.run_program()
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("usage: file_analyzer.py", result.stderr)
+        self.assertEqual(result.stdout, "")
+
+    def test_unknown_option_analyzes_nothing(self):
+        result = self.run_program("a.txt", "--unknown", "b.txt")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("usage: file_analyzer.py", result.stderr)
+        self.assertEqual(result.stdout, "")
+
+
+class TestR10SeparateStatistics(MultiFileTestCase):
+    def test_exact_output_for_two_files(self):
+        result = self.run_program("a.txt", "b.txt")
+        self.assertEqual(
+            result.stdout,
+            block("a.txt", 2, 3, 14)
+            + "\n"
+            + block("b.txt", 1, 1, 4)
+            + "\n"
+            + totals("2 files", 3, 4, 18),
+        )
+
+    def test_each_file_gets_its_own_counts(self):
+        self.write(b"", "empty.txt")
+        self.write(b"\r\n\r\n", "blank.txt")
+        result = self.run_program("empty.txt", "blank.txt", "a.txt")
+        self.assertIn(block("empty.txt", 0, 0, 0), result.stdout)
+        self.assertIn(block("blank.txt", 2, 0, 2), result.stdout)
+        self.assertIn(block("a.txt", 2, 3, 14), result.stdout)
+
+    def test_single_path_output_is_unchanged(self):
+        result = self.run_program("a.txt")
+        self.assertEqual(result.stdout, block("a.txt", 2, 3, 14))
+        self.assertEqual(result.returncode, 0)
+
+
+class TestR11ContinueAfterErrors(MultiFileTestCase):
+    def test_missing_file_in_the_middle(self):
+        result = self.run_program("a.txt", "missing.txt", "b.txt")
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(
+            result.stderr,
+            "Error: 'missing.txt' was not found. Check the path and try again.\n",
+        )
+        self.assertEqual(
+            result.stdout,
+            block("a.txt", 2, 3, 14)
+            + "\n"
+            + block("b.txt", 1, 1, 4)
+            + "\n"
+            + totals("2 files", 3, 4, 18),
+        )
+
+    def test_failure_first_or_last(self):
+        for paths in (("missing.txt", "a.txt"), ("a.txt", "missing.txt")):
+            with self.subTest(paths=paths):
+                result = self.run_program(*paths)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn("'missing.txt' was not found", result.stderr)
+                self.assertEqual(
+                    result.stdout,
+                    block("a.txt", 2, 3, 14) + "\n" + totals("1 file", 2, 3, 14),
+                )
+
+    def test_every_kind_of_error_is_reported_and_skipped(self):
+        self.write(b"caf\xe9", "latin1.txt")
+        self.write(b"ab\x00cd", "binary.txt")
+        (self.directory / "folder").mkdir()
+        result = self.run_program(
+            "latin1.txt", "a.txt", "folder", "binary.txt", "missing.txt", "b.txt"
+        )
+        self.assertEqual(result.returncode, 1)
+        errors = result.stderr.splitlines()
+        self.assertEqual(len(errors), 4)
+        self.assertIn("'latin1.txt' is not valid UTF-8", errors[0])
+        self.assertIn("'folder' is a directory", errors[1])
+        self.assertIn("'binary.txt' appears to be binary", errors[2])
+        self.assertIn("'missing.txt' was not found", errors[3])
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertEqual(result.stdout.count("File:"), 2)
+        self.assertNotIn("latin1.txt", result.stdout)
+
+    def test_permission_error_does_not_stop_processing(self):
+        locked = str(self.directory / "locked.txt")
+        real_open = open
+
+        def fake_open(path, *args, **kwargs):
+            if str(path) == locked:
+                raise PermissionError(13, "Permission denied")
+            return real_open(path, *args, **kwargs)
+
+        good = str(self.directory / "a.txt")
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with mock.patch("builtins.open", fake_open):
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                code = file_analyzer.main([locked, good])
+        self.assertEqual(code, 1)
+        self.assertIn(f"Permission denied when reading '{locked}'", stderr.getvalue())
+        self.assertIn(block(good, 2, 3, 14), stdout.getvalue())
+        self.assertIn(totals("1 file", 2, 3, 14), stdout.getvalue())
+
+    def test_all_files_fail(self):
+        result = self.run_program("missing1.txt", "missing2.txt")
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(len(result.stderr.splitlines()), 2)
+        self.assertEqual(result.stdout, totals("0 files", 0, 0, 0))
+
+    def test_output_failure_stops_processing(self):
+        read_end, write_end = os.pipe()
+        os.close(read_end)  # With no reader, every write to the pipe fails.
+        try:
+            result = subprocess.run(
+                [sys.executable, str(PROGRAM), "a.txt", "b.txt"],
+                cwd=self.directory,
+                stdout=write_end,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=30,
+            )
+        finally:
+            os.close(write_end)
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stderr, "Error: Could not write the results.\n")
+
+
+class TestR12CombinedTotals(MultiFileTestCase):
+    def test_totals_add_up_every_file(self):
+        self.write("café\r\n".encode(), "c.txt")  # 1 line, 1 word, 5 characters
+        result = self.run_program("a.txt", "b.txt", "c.txt")
+        self.assertTrue(result.stdout.endswith("\n\n" + totals("3 files", 4, 5, 23)))
+
+    def test_totals_skip_failed_files(self):
+        self.write(b"bad \xff", "bad.txt")
+        result = self.run_program("a.txt", "bad.txt", "b.txt")
+        self.assertTrue(result.stdout.endswith(totals("2 files", 3, 4, 18)))
+
+    def test_one_successful_file_uses_singular(self):
+        result = self.run_program("b.txt", "missing.txt")
+        self.assertTrue(result.stdout.endswith(totals("1 file", 1, 1, 4)))
+
+    def test_repeated_path_counts_twice(self):
+        result = self.run_program("b.txt", "b.txt")
+        self.assertTrue(result.stdout.endswith(totals("2 files", 2, 2, 8)))
+
+    def test_empty_files_total_zero(self):
+        self.write(b"", "empty1.txt")
+        self.write(b"", "empty2.txt")
+        result = self.run_program("empty1.txt", "empty2.txt")
+        self.assertEqual(result.returncode, 0)
+        self.assertTrue(result.stdout.endswith(totals("2 files", 0, 0, 0)))
+
+    def test_no_totals_for_a_single_path(self):
+        for path in ("a.txt", "missing.txt"):
+            with self.subTest(path=path):
+                self.assertNotIn("Total", self.run_program(path).stdout)
+
+    def test_large_totals(self):
+        self.write(b"two words\n" * 100_000, "big1.txt")
+        self.write(b"two words\n" * 50_000, "big2.txt")
+        result = self.run_program("big1.txt", "big2.txt")
+        self.assertTrue(
+            result.stdout.endswith(totals("2 files", 150_000, 300_000, 1_500_000))
+        )
 
 
 if __name__ == "__main__":
